@@ -13,19 +13,19 @@
 #     name: python3
 # ---
 
+# NB: This notebook requires `ipympl` to interactively update the plot. See installation instructions here: https://github.com/matplotlib/ipympl
+
 # +
 import json
 import os
-import time
+from configparser import ConfigParser
 from datetime import datetime
 
 import ipywidgets as widgets
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
-import pypozyx as px
 from PIL import Image
-
-from trkpy import track
 
 # %matplotlib widget
 
@@ -36,30 +36,22 @@ ANCHORS = {
     0x0D31: (4555, 2580, 1630),
     0x0D2D: ( 400, 3180, 1895)
 }
+REMOTE_ID = [None, 0x7625][0]  # network ID of the tag. Use None for the master.
 
-REMOTE_ID = 0x7625  # network ID of the tag
-REMOTE = False      # whether to use a remote tag or maste
-if not REMOTE:
-    REMOTE_ID = None
-# Positioning algorithm to use, other is PozyxConstants.POSITIONING_ALGORITHM_TRACKING
-POS_ALGO = px.PozyxConstants.POSITIONING_ALGORITHM_UWB_ONLY
-# Positioning dimension. Options are
-#  - PozyxConstants.DIMENSION_2D
-#  - PozyxConstants.DIMENSION_2_5D
-#  - PozyxConstants.DIMENSION_3D
-DIM = px.PozyxConstants.DIMENSION_2D
-# Height of device, required in 2.5D positioning
-HEIGHT = 1000
-
-FLOORPLAN_PATH = "granite_floorplan.jpg"
+CONFIG_PATH = "../config/local.ini"
+FLOORPLAN_NAME = "granite_floorplan.jpg"
 FIGSIZE = (6, 6)
 
 # +
+config = ConfigParser()
+config.read(CONFIG_PATH)
+
 anchors_array = np.array([p[:2] for p in ANCHORS.values()])
 default_shift = anchors_array.mean(axis=0).reshape((2, 1))
 default_scale = np.ptp(anchors_array, axis=0).max() * 2
 
-base_img = Image.open(FLOORPLAN_PATH)
+floorplan_path = os.path.join(config['global']['data_path'], FLOORPLAN_NAME)
+base_img = Image.open(floorplan_path)
 aspect = base_img.width / base_img.height
 extent = np.array([[-aspect, aspect], [-1, 1]]) / 2 * default_scale + default_shift
 
@@ -74,7 +66,7 @@ def save_profile(button):
     profile_data = {
         'anchors': ANCHORS,
         'remote_id': REMOTE_ID,
-        'floorplan_path': os.path.abspath(FLOORPLAN_PATH),
+        'floorplan_path': os.path.abspath(floorplan_path),
         'display_params': display_params
     }
     dirname, filename = os.path.split(profile_data['floorplan_path'])
@@ -86,10 +78,10 @@ def save_profile(button):
     print(f"Profile saved at {profile_path}")
 
 button = widgets.Button(
-    description='Save user profile',
+    description="Save user profile",
     disabled=False,
     button_style='', # 'success', 'info', 'warning', 'danger' or ''
-    tooltip='Save the configuration on disk',
+    tooltip="Save the configuration on disk",
     icon='save' # (FontAwesome names without the `fa-` prefix)
 )
 button.on_click(save_profile)
@@ -97,13 +89,24 @@ button.on_click(save_profile)
 
 # +
 fig, ax = plt.subplots(figsize=FIGSIZE)
+ax.set_xlim(default_shift[0]-default_scale, default_shift[0]+default_scale)
+ax.set_ylim(default_shift[1]-default_scale, default_shift[1]+default_scale)
+
 ax.set_aspect('equal')
-ax.set_axis_off()
+ax.set_facecolor('#eee')
+for s in ax.spines.values(): s.set_visible(False)
+ax.grid(color='#fff')
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+ax.tick_params(tick1On=False)
 
-ax.scatter(*zip(*[pos[:2] for pos in ANCHORS.values()]), marker='s')
-pos = ax.scatter(0, 0, c='tab:orange', s=100)
+ax.scatter(*zip(*[xyz[:2] for xyz in ANCHORS.values()]), marker='s', zorder=3)
+for name, xyz in ANCHORS.items():
+    ax.annotate(f"0x{name:04x}", xyz[:2], xytext=(5, 5), textcoords='offset pixels',
+                path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+# ax.scatter(0, 0, c='tab:orange', s=100)
 
-img_plot = ax.imshow(np.asarray(base_img), extent=extent.ravel())
+img_plot = ax.imshow(np.asarray(base_img), extent=extent.ravel(), zorder=2)
 
 fig.tight_layout()
 
@@ -133,47 +136,3 @@ def update_image(
     display_params['y'] = y
     display_params['scale'] = scale
     display_params['rotation'] = rotation
-
-
-
-
-# +
-# Initialize tags.
-serial_port = px.get_first_pozyx_serial_port()
-if serial_port is None:
-    print("No Pozyx connected. Check your USB cable or your driver!")
-    raise Exception
-master = px.PozyxSerial(serial_port)
-if REMOTE_ID is None:
-    master.printDeviceInfo(REMOTE_ID)
-else:
-    for device_id in [None, REMOTE_ID]:
-        master.printDeviceInfo(device_id)
-# Configure anchors.
-status = track.set_anchors_manual(master, ANCHORS, remote_id=REMOTE_ID)
-if status != px.POZYX_SUCCESS or track.get_num_anchors(master, REMOTE_ID) != len(ANCHORS):
-    print(track.get_latest_error(master, "Configuration", REMOTE_ID))
-print(track.get_config_str(master, REMOTE_ID))
-
-# This is a trick so that the next cell doesn't run on 'run all cells', giving time to the plot
-# above to finish initializing.
-initialized = False
-# -
-
-if initialized:
-    # Start positioning loop.
-    # remote_name = track.get_network_name(REMOTE_ID)
-    while True:
-        position = px.Coordinates()
-        status = master.doPositioning(
-            position, DIM, HEIGHT, POS_ALGO, remote_id=REMOTE_ID
-        )
-        if status == px.POZYX_SUCCESS:
-            pos.set_offsets((position.x, position.y))
-            fig.canvas.draw()
-            time.sleep(.5)
-    #         print(f"POS [{remote_name}]: ({get_position_str(position)})")
-    #     else:
-    #         print(get_latest_error(master, "Positioning", REMOTE_ID))
-else:
-    initialized = True
