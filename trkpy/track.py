@@ -4,6 +4,33 @@ Functions to initialize and use the Pozyx tracker.
 import pypozyx as px
 
 
+def init_master(timeout: float = .1):
+    """Initialize the master tag."""
+    port = px.get_first_pozyx_serial_port()
+    if port is None:
+        raise OSError("No Pozyx connected. Check your USB cable or driver!")
+    master = px.PozyxSerial(port, timeout=timeout, write_timeout=timeout)
+    return master
+
+
+def do_positioning(
+    master: px.PozyxSerial,
+    dimension: int,
+    algorithm: int,
+    remote_id: int = None
+):
+    """Perform positioning of the tag."""
+    pos = px.Coordinates()
+    status = master.doPositioning(
+        pos, dimension=dimension, algorithm=algorithm, remote_id=remote_id
+    )
+    if status != px.POZYX_SUCCESS:
+        return None
+    if dimension == px.PozyxConstants.DIMENSION_2D:
+        return (pos.x, pos.y)
+    return (pos.x, pos.y, pos.z)
+
+
 def get_network_name(network_id: int = None):
     """Get the name of the device (tag or anchor) as a '0x****' string."""
     if network_id is None:
@@ -33,34 +60,29 @@ def get_latest_error(
     return error_message
 
 
-def get_num_anchors(master: px.PozyxSerial, remote_id: int = None):
-    """Get the number of anchors added to the tag."""
+def get_anchors_config(master: px.PozyxSerial, remote_id: int = None):
+    """Return the tag's anchor configuration.
+
+    It doesn't mean that the anchors are actually on and working! It only
+    means that the tag is configured to recognize these anchors and assign them
+    this position.
+
+    """
     list_size = px.SingleRegister()
-    master.getDeviceListSize(list_size, remote_id)
-    return list_size[0]
-
-
-def get_position_str(position):
-    """Return the tag's position as a human-readable string."""
-    return f"x: {position.x}mm y: {position.y}mm z: {position.z}mm"
-
-
-def get_config_str(master: px.PozyxSerial, remote_id: int = None):
-    """Return the tag's anchor configuration as a human-readable string."""
-    num_anchors = get_num_anchors(master, remote_id)
-    config_str = f"Anchors found: {num_anchors}\n"
-    device_list = px.DeviceList(list_size=num_anchors)
-    master.getDeviceIds(device_list, remote_id)
+    master.getNumberOfAnchors(list_size, remote_id)
+    device_list = px.DeviceList(list_size=list_size.value)
+    master.getPositioningAnchorIds(device_list, remote_id)
+    anchors = {}
     for nid in device_list:
-        anchor_coords = px.Coordinates()
-        master.getDeviceCoordinates(nid, anchor_coords, remote_id)
-        config_str += f"Anchor {get_network_name(nid)}: {anchor_coords}\n"
-    return config_str
+        coords = px.Coordinates()
+        master.getDeviceCoordinates(nid, coords, remote_id)
+        anchors[get_network_name(nid)] = (coords.x, coords.y, coords.z)
+    return anchors
 
 
 def set_anchors_manual(
     master: px.PozyxSerial,
-    anchors: dict[int, tuple[float, float, float]],
+    anchors: dict[str, tuple[float, float, float]],
     save_to_flash: bool = False,
     remote_id: int = None
 ):
@@ -68,7 +90,7 @@ def set_anchors_manual(
     status = master.clearDevices(remote_id)
     for name, xyz in anchors.items():
         # Second argument of DeviceCoordinates is 1 for 'anchor'.
-        coords = px.DeviceCoordinates(name, 1, px.Coordinates(*xyz))
+        coords = px.DeviceCoordinates(int(name), 1, px.Coordinates(*xyz))
         status &= master.addDevice(coords, remote_id)
     if len(anchors) > 4:
         status &= master.setSelectionOfAnchors(
@@ -82,4 +104,4 @@ def set_anchors_manual(
             [px.PozyxRegisters.POSITIONING_NUMBER_OF_ANCHORS],
             remote_id=remote_id
         )
-    return status
+    return status == px.POZYX_SUCCESS

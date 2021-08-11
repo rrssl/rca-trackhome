@@ -6,28 +6,11 @@ import os
 import time
 from argparse import ArgumentParser
 from configparser import ConfigParser
+from pprint import pprint
 
 import pypozyx as px
 
 from trkpy import track
-
-
-def init_master(retry_wait: float = 1, max_attempts: int = 10):
-    """Initialize the master tag."""
-    serial_port = px.get_first_pozyx_serial_port()
-    if serial_port is None:
-        raise OSError("No Pozyx connected. Check your USB cable or driver!")
-    for i in range(max_attempts):
-        try:
-            master = px.PozyxSerial(serial_port)
-        except OSError:
-            if i == max_attempts-1:
-                raise
-            print("Master tag is busy. Retrying in {retry_wait}s.")
-            time.sleep(retry_wait)
-        else:
-            break
-    return master
 
 
 def main():
@@ -44,7 +27,7 @@ def main():
     with open(profile_path) as handle:
         profile = json.load(handle)
     # Initialize tags.
-    master = init_master()
+    master = track.init_master(timeout=1)
     remote_id = profile['remote_id']
     if remote_id is None:
         master.printDeviceInfo(remote_id)
@@ -52,25 +35,21 @@ def main():
         for device_id in [None, remote_id]:
             master.printDeviceInfo(device_id)
     # Configure anchors.
-    anchors = {int(k): v for k, v in profile['anchors'].items()}
-    status = track.set_anchors_manual(master, anchors, remote_id=remote_id)
-    if (
-        status != px.POZYX_SUCCESS
-        or track.get_num_anchors(master, remote_id) != len(anchors)
-    ):
+    success = track.set_anchors_manual(
+        master, profile['anchors'], remote_id=remote_id
+    )
+    if success:
+        pprint(track.get_anchors_config(master, remote_id))
+    else:
         print(track.get_latest_error(master, "Configuration", remote_id))
-    print(track.get_config_str(master, remote_id))
     # Start positioning loop.
     pos_dim = getattr(px.PozyxConstants, config['tracking']['pos_dim'])
     pos_algo = getattr(px.PozyxConstants, config['tracking']['pos_algo'])
     remote_name = track.get_network_name(remote_id)
     while True:
-        pos = px.Coordinates()
-        status = master.doPositioning(
-            pos, dimension=pos_dim, algorithm=pos_algo, remote_id=remote_id
-        )
-        if status == px.POZYX_SUCCESS:
-            print(f"POS [{remote_name}]: ({track.get_position_str(pos)})")
+        pos = track.do_positioning(master, pos_dim, pos_algo, remote_id)
+        if pos:
+            print(f"POS [{remote_name}]: {pos}")
         else:
             print(track.get_latest_error(master, "Positioning", remote_id))
         time.sleep(.1)
