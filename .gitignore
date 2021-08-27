@@ -1,7 +1,9 @@
 # Custom
 pylintrc
 tags
+config/local.ini
 *.ipynb
+_*/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
