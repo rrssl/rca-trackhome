@@ -5,6 +5,21 @@
 #include <Pozyx_definitions.h>
 #include <Wire.h>
 
+//#define DEBUG
+#ifdef DEBUG
+  #define DEBUG_INIT(x) Serial.begin(x)
+  #define DEBUG_PRINT(x) Serial.print(x)
+  #define DEBUG_PRINTLN(x) Serial.println(x)
+  #define DEBUG_PRINTHEX(x) Serial.print(x, HEX)
+  #define DEBUG_PRINTLNHEX(x) Serial.println(x, HEX)
+#else
+  #define DEBUG_INIT(x)
+  #define DEBUG_PRINT(x)
+  #define DEBUG_PRINTLN(x)
+  #define DEBUG_PRINTHEX(x)
+  #define DEBUG_PRINTLNHEX(x)
+#endif
+
 uint16_t remote_id = 0x6000;  // set this to the ID of the remote device
 bool remote = false;          // set this to true to use the remote ID
 
@@ -19,20 +34,20 @@ uint8_t dimension = POZYX_3D;                // positioning dimension
 int32_t height = 1000;                       // height of device, required in 2.5D positioning
 
 void setup() {
-  Serial.begin(115200);
+  DEBUG_INIT(115200);
 
   if(Pozyx.begin() == POZYX_FAILURE){
-    Serial.println(F("ERROR: Unable to connect to Pozyx shield\nReset required"));
+    DEBUG_PRINTLN(F("ERROR: Unable to connect to Pozyx shield\nReset required"));
     delay(100);
     while(1);
   } else {
-    Serial.println(F("Connected to Pozyx shield"));
+    DEBUG_PRINTLN(F("Connected to Pozyx shield"));
   }
   if(!remote){
     remote_id = NULL;
   }
 
-  Serial.println(F("Performing manual anchor configuration:"));
+  DEBUG_PRINTLN(F("Performing manual anchor configuration:"));
   // clear all previous devices in the device list
   Pozyx.clearDevices(remote_id);
   // sets the anchor manually
@@ -43,7 +58,7 @@ void setup() {
   printCalibrationResult();
   delay(2000);
 
-  Serial.println(F("Starting positioning:"));
+  DEBUG_PRINTLN(F("Starting positioning:"));
 }
 
 void loop() {
@@ -71,14 +86,14 @@ void printCoordinates(coordinates_t coor){
   if (network_id == NULL){
     network_id = 0;
   }
-  Serial.print("POS ID 0x");
-  Serial.print(network_id, HEX);
-  Serial.print(", x(mm): ");
-  Serial.print(coor.x);
-  Serial.print(", y(mm): ");
-  Serial.print(coor.y);
-  Serial.print(", z(mm): ");
-  Serial.println(coor.z);
+  DEBUG_PRINT("POS ID 0x");
+  DEBUG_PRINTHEX(network_id);
+  DEBUG_PRINT(", x(mm): ");
+  DEBUG_PRINT(coor.x);
+  DEBUG_PRINT(", y(mm): ");
+  DEBUG_PRINT(coor.y);
+  DEBUG_PRINT(", z(mm): ");
+  DEBUG_PRINTLN(coor.z);
 }
 
 // error printing function for debugging
@@ -86,26 +101,26 @@ void printErrorCode(String operation){
   uint8_t error_code;
   if (remote_id == NULL){
     Pozyx.getErrorCode(&error_code);
-    Serial.print("ERROR ");
-    Serial.print(operation);
-    Serial.print(", local error code: 0x");
-    Serial.println(error_code, HEX);
+    DEBUG_PRINT("ERROR ");
+    DEBUG_PRINT(operation);
+    DEBUG_PRINT(", local error code: 0x");
+    DEBUG_PRINTLNHEX(error_code);
     return;
   }
   int status = Pozyx.getErrorCode(&error_code, remote_id);
   if(status == POZYX_SUCCESS){
-    Serial.print("ERROR ");
-    Serial.print(operation);
-    Serial.print(" on ID 0x");
-    Serial.print(remote_id, HEX);
-    Serial.print(", error code: 0x");
-    Serial.println(error_code, HEX);
+    DEBUG_PRINT("ERROR ");
+    DEBUG_PRINT(operation);
+    DEBUG_PRINT(" on ID 0x");
+    DEBUG_PRINTHEX(remote_id);
+    DEBUG_PRINT(", error code: 0x");
+    DEBUG_PRINTLNHEX(error_code);
   }else{
     Pozyx.getErrorCode(&error_code);
-    Serial.print("ERROR ");
-    Serial.print(operation);
-    Serial.print(", couldn't retrieve remote error code, local error: 0x");
-    Serial.println(error_code, HEX);
+    DEBUG_PRINT("ERROR ");
+    DEBUG_PRINT(operation);
+    DEBUG_PRINT(", couldn't retrieve remote error code, local error: 0x");
+    DEBUG_PRINTLNHEX(error_code);
   }
 }
 
@@ -115,8 +130,8 @@ void printCalibrationResult(){
   int status;
 
   status = Pozyx.getDeviceListSize(&list_size, remote_id);
-  Serial.print("list size: ");
-  Serial.println(status*list_size);
+  DEBUG_PRINT("list size: ");
+  DEBUG_PRINTLN(status*list_size);
 
   if(list_size == 0){
     printErrorCode("configuration");
@@ -126,23 +141,23 @@ void printCalibrationResult(){
   uint16_t device_ids[list_size];
   status &= Pozyx.getDeviceIds(device_ids, list_size, remote_id);
 
-  Serial.println(F("Calibration result:"));
-  Serial.print(F("Anchors found: "));
-  Serial.println(list_size);
+  DEBUG_PRINTLN(F("Calibration result:"));
+  DEBUG_PRINT(F("Anchors found: "));
+  DEBUG_PRINTLN(list_size);
 
   coordinates_t anchor_coor;
   for(int i = 0; i < list_size; i++)
   {
-    Serial.print("ANCHOR,");
-    Serial.print("0x");
-    Serial.print(device_ids[i], HEX);
-    Serial.print(",");
+    DEBUG_PRINT("ANCHOR,");
+    DEBUG_PRINT("0x");
+    DEBUG_PRINTHEX(device_ids[i]);
+    DEBUG_PRINT(",");
     Pozyx.getDeviceCoordinates(device_ids[i], &anchor_coor, remote_id);
-    Serial.print(anchor_coor.x);
-    Serial.print(",");
-    Serial.print(anchor_coor.y);
-    Serial.print(",");
-    Serial.println(anchor_coor.z);
+    DEBUG_PRINT(anchor_coor.x);
+    DEBUG_PRINT(",");
+    DEBUG_PRINT(anchor_coor.y);
+    DEBUG_PRINT(",");
+    DEBUG_PRINTLN(anchor_coor.z);
   }
 }
 
