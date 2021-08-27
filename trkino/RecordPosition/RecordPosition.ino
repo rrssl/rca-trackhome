@@ -4,8 +4,10 @@
 #include <Pozyx.h>
 #include <Pozyx_definitions.h>
 #include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
   #define DEBUG_INIT(x) Serial.begin(x)
   #define DEBUG_PRINT(x) Serial.print(x)
@@ -19,6 +21,8 @@
   #define DEBUG_PRINTHEX(x)
   #define DEBUG_PRINTLNHEX(x)
 #endif
+
+const uint8_t chipSelect = 4;
 
 uint16_t remote_id = 0x6000;  // set this to the ID of the remote device
 bool remote = false;          // set this to true to use the remote ID
@@ -36,28 +40,49 @@ int32_t height = 1000;                       // height of device, required in 2.
 void setup() {
   DEBUG_INIT(115200);
 
-  if(Pozyx.begin() == POZYX_FAILURE){
-    DEBUG_PRINTLN(F("ERROR: Unable to connect to Pozyx shield\nReset required"));
-    delay(100);
-    while(1);
-  } else {
-    DEBUG_PRINTLN(F("Connected to Pozyx shield"));
+  // Initialize the SD card.
+  DEBUG_PRINT(F("Initializing SD card... "));
+  if (!SD.begin(chipSelect)) {
+    DEBUG_PRINTLN(F("SD card initialization failed!"));
+    while (1);
   }
+  Serial.println(F("SD card initialization done."));
+  // Create a new file.
+  char countFilename[] = "SYSINIT.DAT";
+  uint8_t fileCount = 0;
+  File countFile = SD.open(countFilename, O_CREAT | O_RDWR);
+  if (countFile.available()) {
+    countFile.seek(0);
+    fileCount = countFile.read();
+    countFile.seek(0);
+  }
+  countFile.write(fileCount + 1);
+  countFile.close();
+  String dataFilename = "REC";
+  dataFilename += (fileCount < 100 ? fileCount < 10 ? "00" : "0" : "") + String(fileCount);
+  dataFilename += ".DAT";
+  File dataFile = SD.open(dataFilename, FILE_WRITE);
+  DEBUG_PRINTLN(String("Opened ") + dataFilename);
+
+  if(Pozyx.begin() == POZYX_FAILURE){
+    DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
+    while (1);
+  }
+  DEBUG_PRINTLN(F("Connected to Pozyx shield"));
+
+  DEBUG_PRINTLN(F("Performing manual anchor configuration"));
   if(!remote){
     remote_id = NULL;
   }
-
-  DEBUG_PRINTLN(F("Performing manual anchor configuration:"));
   // clear all previous devices in the device list
   Pozyx.clearDevices(remote_id);
   // sets the anchor manually
   setAnchorsManual();
   // sets the positioning algorithm
   Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
-
   printCalibrationResult();
-  delay(2000);
 
+  delay(500);
   DEBUG_PRINTLN(F("Starting positioning:"));
 }
 
