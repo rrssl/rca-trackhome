@@ -24,7 +24,7 @@
 
 const uint8_t chipSelect = 4;
 
-uint16_t remote_id = 0x6000;  // set this to the ID of the remote device
+uint16_t remote_id = 0x7625;  // set this to the ID of the remote device
 bool remote = false;          // set this to true to use the remote ID
 
 const uint8_t num_anchors = 4;                                     // number of anchors
@@ -36,6 +36,10 @@ int32_t heights[num_anchors] = {1125, 2150, 1630, 1895};           // anchor z-c
 uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;  // positioning algorithm to use
 uint8_t dimension = POZYX_3D;                // positioning dimension
 int32_t height = 1000;                       // height of device, required in 2.5D positioning
+
+int32_t dataRow[4] = {0};
+size_t cycles = 0;
+File dataFile;
 
 void setup() {
   DEBUG_INIT(115200);
@@ -61,7 +65,7 @@ void setup() {
   String dataFilename = "REC";
   dataFilename += (fileCount < 100 ? fileCount < 10 ? "00" : "0" : "") + String(fileCount);
   dataFilename += ".DAT";
-  File dataFile = SD.open(dataFilename, FILE_WRITE);
+  dataFile = SD.open(dataFilename, FILE_WRITE);
   DEBUG_PRINTLN(String("Opened ") + dataFilename);
 
   if(Pozyx.begin() == POZYX_FAILURE){
@@ -87,22 +91,39 @@ void setup() {
 }
 
 void loop() {
+  // Turn on the LED to indicate now is not the time to unplug
+  analogWrite(LED_BUILTIN, HIGH);
+  delay(1000);
+  uint32_t time = millis();
+  // Do positioning
   coordinates_t position;
   int status;
-  if(remote){
+  if (remote) {
     status = Pozyx.doRemotePositioning(remote_id, &position, dimension, height, algorithm);
-  }else{
+  } else {
     status = Pozyx.doPositioning(&position, dimension, height, algorithm);
   }
-
-  if (status == POZYX_SUCCESS){
-    // prints out the result
+  if (status == POZYX_SUCCESS) {
     printCoordinates(position);
-  }else{
+    // Write the data.
+    dataRow[0] = static_cast<int32_t>(time);
+    dataRow[1] = position.x;
+    dataRow[2] = position.y;
+    dataRow[3] = position.z;
+    dataFile.write(reinterpret_cast<uint8_t*>(dataRow), sizeof(dataRow));
+    // Force flush periodically.
+    cycles += 1;
+    if (cycles == 64) {
+      dataFile.flush();
+      cycles = 0;
+    }
+  } else {
     // prints out the error code
     printErrorCode("positioning");
   }
-  delay(1000);
+  // We're done, turn off the LED and wait.
+  analogWrite(LED_BUILTIN, LOW);
+  delay(9000 - (millis() - time));
 }
 
 // prints the coordinates for either humans or for processing
