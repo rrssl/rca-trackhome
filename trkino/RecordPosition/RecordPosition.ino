@@ -9,13 +9,13 @@
 
 #define DEBUG
 #ifdef DEBUG
-  #define DEBUG_INIT(x) Serial.begin(x)
+  #define DEBUG_BEGIN_SERIAL(x) Serial.begin(x)
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINTHEX(x) Serial.print(x, HEX)
   #define DEBUG_PRINTLNHEX(x) Serial.println(x, HEX)
 #else
-  #define DEBUG_INIT(x)
+  #define DEBUG_BEGIN_SERIAL(x)
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTHEX(x)
@@ -42,7 +42,7 @@ size_t cycles = 0;
 File dataFile;
 
 void setup() {
-  DEBUG_INIT(115200);
+  DEBUG_BEGIN_SERIAL(115200);
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
@@ -50,23 +50,32 @@ void setup() {
     DEBUG_PRINTLN(F("SD card initialization failed!"));
     while (1);
   }
-  Serial.println(F("SD card initialization done."));
-  // Create a new file.
-  char countFilename[] = "SYSINIT.DAT";
+  DEBUG_PRINTLN(F("SD card initialization done."));
+
+  // Load the configuration files.
+  File countFile = SD.open("SYSINIT.DAT", O_CREAT | O_RDWR);
   uint8_t fileCount = 0;
-  File countFile = SD.open(countFilename, O_CREAT | O_RDWR);
   if (countFile.available()) {
     countFile.seek(0);
     fileCount = countFile.read();
+    DEBUG_PRINT(F("Contents of SYSINIT.DAT: "));
+    DEBUG_PRINTLN(fileCount);
     countFile.seek(0);
   }
   countFile.write(fileCount + 1);
   countFile.close();
-  String dataFilename = "REC";
-  dataFilename += (fileCount < 100 ? fileCount < 10 ? "00" : "0" : "") + String(fileCount);
-  dataFilename += ".DAT";
+
+  // Create a new file.
+  char dataFilename[12];
+  sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
   dataFile = SD.open(dataFilename, FILE_WRITE);
-  DEBUG_PRINTLN(String("Opened ") + dataFilename);
+  if (dataFile) {
+    DEBUG_PRINT(F("Opened "));
+    DEBUG_PRINTLN(dataFilename);
+  } else {
+    DEBUG_PRINTLN(F("Could not open the data file!"));
+    while (1);
+  }
 
   if(Pozyx.begin() == POZYX_FAILURE){
     DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
