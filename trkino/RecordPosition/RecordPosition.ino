@@ -29,7 +29,7 @@ bool remote = false;          // set this to true to use the remote ID
 
 const uint8_t num_anchors = 4;                                     // number of anchors
 uint16_t anchors[num_anchors] = {0x681D, 0x685C, 0x0D31, 0x0D2D};  // network id of the anchors
-int32_t anchors_x[num_anchors] = {520, 3270, 4555, 400};           // anchor x-coorindates in mm
+int32_t anchors_x[num_anchors] = {520, 3270, 4555, 400};           // anchor x-coordinates in mm
 int32_t anchors_y[num_anchors] = {0, 400, 2580, 3180};             // anchor y-coordinates in mm
 int32_t heights[num_anchors] = {1125, 2150, 1630, 1895};           // anchor z-coordinates in mm
 
@@ -37,9 +37,13 @@ uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;  // positioning algorithm to use
 uint8_t dimension = POZYX_3D;                // positioning dimension
 int32_t height = 1000;                       // height of device, required in 2.5D positioning
 
-int32_t dataRow[4] = {0};
-size_t cycles = 0;
 File dataFile;
+// Each record is (t, x, y, z) in [ms, mm, mm, mm].
+int32_t dataRow[4] = {0};
+// dataRow is 16 bytes long, so it takes 512/16=32 cycles to actually write to
+// the SD card. With 10 sec cycles: 1 write every 5 min 20 sec.
+// The parameters below allow to flush more often.
+size_t cycles = 0;
 
 void setup() {
   DEBUG_BEGIN_SERIAL(115200);
