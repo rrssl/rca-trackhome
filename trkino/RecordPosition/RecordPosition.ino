@@ -40,9 +40,12 @@ int32_t height = 1000;                       // height of device, required in 2.
 File dataFile;
 // Each record is (t, x, y, z) in [ms, mm, mm, mm].
 int32_t dataRow[4] = {0};
+// Length of a cycle in ms. It should probably not be lower than 2000ms!
+size_t cycle_length = 10000;
 // dataRow is 16 bytes long, so it takes 512/16=32 cycles to actually write to
-// the SD card. With 10 sec cycles: 1 write every 5 min 20 sec.
+// the SD card. With 10s cycles, this means 1 write every 5min 20s.
 // The parameters below allow to flush more often.
+size_t flush_period = 0;  // flushes every x cycle (disabled if 0)
 size_t cycles = 0;
 
 void setup() {
@@ -126,7 +129,7 @@ void loop() {
     dataFile.write(reinterpret_cast<uint8_t*>(dataRow), sizeof(dataRow));
     // Force flush periodically.
     cycles += 1;
-    if (cycles == 64) {
+    if (cycles == flush_period) {
       dataFile.flush();
       cycles = 0;
     }
@@ -136,7 +139,7 @@ void loop() {
   }
   // We're done, turn off the LED and wait.
   analogWrite(LED_BUILTIN, LOW);
-  delay(9000 - (millis() - time));
+  delay(cycle_length - 1000 - (millis() - time));
 }
 
 // prints the coordinates for either humans or for processing
@@ -183,7 +186,7 @@ void printErrorCode(String operation){
   }
 }
 
-// print out the anchor coordinates (also required for the processing sketch)
+// print out the anchor coordinates
 void printCalibrationResult(){
   uint8_t list_size;
   int status;
