@@ -6,6 +6,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
+#include <CSV_Parser.h>
 
 #define DEBUG
 #ifdef DEBUG
@@ -24,15 +25,9 @@
 
 const uint8_t chipSelect = 4;
 
-uint16_t remote_id = 0x7625;  // set this to the ID of the remote device
-bool remote = false;          // set this to true to use the remote ID
-
-const uint8_t num_anchors = 4;                                     // number of anchors
-uint16_t anchors[num_anchors] = {0x681D, 0x685C, 0x0D31, 0x0D2D};  // network id of the anchors
-int32_t anchors_x[num_anchors] = {520, 3270, 4555, 400};           // anchor x-coordinates in mm
-int32_t anchors_y[num_anchors] = {0, 400, 2580, 3180};             // anchor y-coordinates in mm
-int32_t heights[num_anchors] = {1125, 2150, 1630, 1895};           // anchor z-coordinates in mm
-
+// POZYX CONFIG
+uint16_t remote_id = 0;  // with this default value, all calls will go to the master tag
+bool remote = true;  // set this to true to use the remote ID
 uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;  // positioning algorithm to use
 uint8_t dimension = POZYX_3D;                // positioning dimension
 int32_t height = 1000;                       // height of device, required in 2.5D positioning
@@ -59,22 +54,34 @@ void setup() {
   }
   DEBUG_PRINTLN(F("SD card initialization done."));
 
-  // Load the configuration files.
-  File countFile = SD.open("SYSINIT.DAT", O_CREAT | O_RDWR);
-  uint8_t fileCount = 0;
-  if (countFile.available()) {
-    countFile.seek(0);
-    fileCount = countFile.read();
-    DEBUG_PRINT(F("Contents of SYSINIT.DAT: "));
-    DEBUG_PRINTLN(fileCount);
-    countFile.seek(0);
+  if(Pozyx.begin() == POZYX_FAILURE){
+    DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
+    while (1);
   }
-  countFile.write(fileCount + 1);
-  countFile.close();
+  DEBUG_PRINTLN(F("Connected to Pozyx shield"));
 
-  // Create a new file.
+  DEBUG_PRINTLN(F("Configuring Pozyx..."));
+  // Clear all previous devices in the device list.
+  Pozyx.clearDevices(remote_id);
+  // Set the devices from a CSV file on the SD card.
+  setUpPozyxFromCSV("/POZYXCFG.CSV");
+  // Set the positioning algorithm.
+  Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
+  printCalibrationResult();
+
+  // Define the data file name.
+  dataFile = SD.open("SYSINIT.DAT", O_CREAT | O_RDWR);
+  uint8_t fileCount = 0;
+  if (dataFile.available()) { // 'available' means that there is data to read
+    dataFile.seek(0);
+    fileCount = dataFile.read(); // reads exactly one byte
+    dataFile.seek(0);
+  }
+  dataFile.write(fileCount + 1);
+  dataFile.close();
   char dataFilename[12];
   sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
+  // Create a new data file.
   dataFile = SD.open(dataFilename, FILE_WRITE);
   if (dataFile) {
     DEBUG_PRINT(F("Opened "));
@@ -83,24 +90,6 @@ void setup() {
     DEBUG_PRINTLN(F("Could not open the data file!"));
     while (1);
   }
-
-  if(Pozyx.begin() == POZYX_FAILURE){
-    DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
-    while (1);
-  }
-  DEBUG_PRINTLN(F("Connected to Pozyx shield"));
-
-  DEBUG_PRINTLN(F("Performing manual anchor configuration"));
-  if(!remote){
-    remote_id = NULL;
-  }
-  // clear all previous devices in the device list
-  Pozyx.clearDevices(remote_id);
-  // sets the anchor manually
-  setAnchorsManual();
-  // sets the positioning algorithm
-  Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
-  printCalibrationResult();
 
   delay(500);
   DEBUG_PRINTLN(F("Starting positioning:"));
@@ -114,9 +103,12 @@ void loop() {
   // Do positioning
   coordinates_t position;
   int status;
-  if (remote) {
-    status = Pozyx.doRemotePositioning(remote_id, &position, dimension, height, algorithm);
+  if (remote_id) {
+    status = Pozyx.doRemotePositioning(
+      remote_id, &position, dimension, height, algorithm
+    );
   } else {
+    // A 0-valued remote id means that positioning is done by the master tag.
     status = Pozyx.doPositioning(&position, dimension, height, algorithm);
   }
   if (status == POZYX_SUCCESS) {
@@ -163,25 +155,25 @@ void printErrorCode(String operation){
   uint8_t error_code;
   if (remote_id == NULL){
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT("ERROR ");
+    DEBUG_PRINT(F("ERROR "));
     DEBUG_PRINT(operation);
-    DEBUG_PRINT(", local error code: 0x");
+    DEBUG_PRINT(F(", local error code: 0x"));
     DEBUG_PRINTLNHEX(error_code);
     return;
   }
   int status = Pozyx.getErrorCode(&error_code, remote_id);
-  if(status == POZYX_SUCCESS){
-    DEBUG_PRINT("ERROR ");
+  if (status == POZYX_SUCCESS) {
+    DEBUG_PRINT(F("ERROR "));
     DEBUG_PRINT(operation);
-    DEBUG_PRINT(" on ID 0x");
+    DEBUG_PRINT(F(" on ID 0x"));
     DEBUG_PRINTHEX(remote_id);
-    DEBUG_PRINT(", error code: 0x");
+    DEBUG_PRINT(F(", error code: 0x"));
     DEBUG_PRINTLNHEX(error_code);
-  }else{
+  } else {
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT("ERROR ");
+    DEBUG_PRINT(F("ERROR "));
     DEBUG_PRINT(operation);
-    DEBUG_PRINT(", couldn't retrieve remote error code, local error: 0x");
+    DEBUG_PRINT(F(", couldn't retrieve remote error code, local error: 0x"));
     DEBUG_PRINTLNHEX(error_code);
   }
 }
@@ -223,18 +215,50 @@ void printCalibrationResult(){
   }
 }
 
-// function to manually set the anchor coordinates
-void setAnchorsManual(){
-  for(int i = 0; i < num_anchors; i++){
-    device_coordinates_t anchor;
-    anchor.network_id = anchors[i];
-    anchor.flag = 0x1;
-    anchor.pos.x = anchors_x[i];
-    anchor.pos.y = anchors_y[i];
-    anchor.pos.z = heights[i];
-    Pozyx.addDevice(anchor, remote_id);
-  }
-  if (num_anchors > 4){
-    Pozyx.setSelectionOfAnchors(POZYX_ANCHOR_SEL_AUTO, num_anchors, remote_id);
+void setUpAnchor(uint16_t network_id, int32_t x, int32_t y, int32_t z){
+  device_coordinates_t anchor;
+  anchor.network_id = network_id;
+  anchor.flag = 0x1;
+  anchor.pos.x = x;
+  anchor.pos.y = y;
+  anchor.pos.z = z;
+  Pozyx.addDevice(anchor, remote_id);
+}
+
+void setUpPozyxFromCSV(const char *filename) {
+  // The expected data is hex(uint32),int32,int32,int32,uint8.
+  CSV_Parser cp("uxLLLuc");
+  // cp.readSDfile won't work if SD.begin wasn't called before.
+  if (cp.readSDfile(filename)) {
+    // These types have to match the size assigned in the format above,
+    // otherwise it will break the data alignment. Conversions can be done per
+    // element later.
+    uint32_t *devices_id = static_cast<uint32_t*>(cp["network_id"]);
+    int32_t *devices_x = static_cast<int32_t*>(cp["x"]);
+    int32_t *devices_y = static_cast<int32_t*>(cp["y"]);
+    int32_t *devices_z = static_cast<int32_t*>(cp["z"]);
+    uint8_t *devices_is_tag = static_cast<uint8_t*>(cp["is_tag"]);
+    size_t num_anchors = 0;
+
+    for(size_t i = 0; i < cp.getRowsCount(); ++i) {
+      if (devices_is_tag[i]) {
+        remote_id = devices_id[i];
+      } else {
+        setUpAnchor(
+          static_cast<uint16_t>(devices_id[i]),
+          devices_x[i],
+          devices_y[i],
+          devices_z[i]
+        );
+        ++num_anchors;
+      }
+    }
+    if (num_anchors > 4){
+      Pozyx.setSelectionOfAnchors(
+        POZYX_ANCHOR_SEL_AUTO, num_anchors, remote_id
+      );
+    }
+  } else {
+    DEBUG_PRINTLN(F("ERROR: The file does not exist..."));
   }
 }
