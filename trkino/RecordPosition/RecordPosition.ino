@@ -23,25 +23,107 @@
   #define DEBUG_PRINTLNHEX(x)
 #endif
 
+// --- ARDUINO CONFIG ---
+// Pin used by the SD card. It is 4 on the Ethernet board.
 const uint8_t chipSelect = 4;
+// --- POZYX CONFIG ---
+// Id of the tag performing the positioning (0 means master tag).
+uint16_t remote_id = 0;
+// Positioning algorithm.
+uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;
+// Positioning dimensions (2/2.5/3D).
+uint8_t dimension = POZYX_3D;
+// Height of device, required in 2.5D positioning.
+int32_t height = 1000;
 
-// POZYX CONFIG
-uint16_t remote_id = 0;  // with this default value, all calls will go to the master tag
-bool remote = true;  // set this to true to use the remote ID
-uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;  // positioning algorithm to use
-uint8_t dimension = POZYX_3D;                // positioning dimension
-int32_t height = 1000;                       // height of device, required in 2.5D positioning
-
+// File used to store the positioning data at every loop.
 File dataFile;
 // Each record is (t, x, y, z) in [ms, mm, mm, mm].
 int32_t dataRow[4] = {0};
-// Length of a cycle in ms. It should probably not be lower than 2000ms!
-size_t cycle_length = 10000;
-// dataRow is 16 bytes long, so it takes 512/16=32 cycles to actually write to
+// Positioning period in ms. It should probably not be lower than 2000ms!
+size_t pos_period = 10000;
+// dataRow is 16 bytes long, so it takes 512/16=32 records to actually write to
 // the SD card. With 10s cycles, this means 1 write every 5min 20s.
 // The parameters below allow to flush more often.
 size_t flush_period = 0;  // flushes every x cycle (disabled if 0)
 size_t cycles = 0;
+
+
+// Subroutine of setup(). Has side effects. Will block on error.
+void setupPozyxFromCSV(const char *filename) {
+  // The expected data types are hex(uint32),int32,int32,int32,uint8.
+  CSV_Parser cp("uxLLLuc");
+  // NB: cp.readSDfile requires SD.begin to have been called beforehand.
+  if (!cp.readSDfile(filename)) {
+    DEBUG_PRINTLN(F("ERROR: CSV file not found."));
+    while (1);
+  }
+  // These types have to match the size assigned in the format string above,
+  // otherwise it will break the data alignment. Conversions can be done per
+  // element later.
+  uint32_t *devices_id = static_cast<uint32_t*>(cp["network_id"]);
+  int32_t *devices_x = static_cast<int32_t*>(cp["x"]);
+  int32_t *devices_y = static_cast<int32_t*>(cp["y"]);
+  int32_t *devices_z = static_cast<int32_t*>(cp["z"]);
+  uint8_t *devices_is_tag = static_cast<uint8_t*>(cp["is_tag"]);
+
+  // First iterate over all tags.
+  for(size_t i = 0; i < cp.getRowsCount(); ++i) {
+    if (devices_is_tag[i]) {
+      // Currently, the global remote_id is that of the tag defined last in
+      // the CSV. This will change when we add multi-tag support.
+      remote_id = devices_id[i];
+    }
+  }
+  // Then iterate over all anchors.
+  size_t num_anchors = 0;
+  for(size_t i = 0; i < cp.getRowsCount(); ++i) {
+    if (!devices_is_tag[i]) {
+      device_coordinates_t anchor;
+      anchor.network_id = static_cast<uint16_t>(devices_id[i]);
+      anchor.flag = 0x1;
+      anchor.pos.x = devices_x[i];
+      anchor.pos.y = devices_y[i];
+      anchor.pos.z = devices_z[i];
+      int status = Pozyx.addDevice(anchor, remote_id);
+      if (status == POZYX_SUCCESS) {
+        ++num_anchors;
+      } else {
+        printErrorCode(remote_id);
+        while (1);
+      }
+    }
+  }
+  if (num_anchors > 4){
+    Pozyx.setSelectionOfAnchors(POZYX_ANCHOR_SEL_AUTO, num_anchors,
+                                remote_id);
+  }
+}
+
+// Subroutine of setup(). Has side effects. Will block on error.
+void setupRecordFromConfig(const char *filename) {
+  // Define the data file name.
+  File configFile = SD.open(filename, O_CREAT | O_RDWR);
+  uint8_t fileCount;
+  if (configFile.available()) { // 'available' means that there is data to read
+    fileCount = configFile.peek(); // reads exactly one byte
+  } else {
+    fileCount = 0;
+  }
+  configFile.write(fileCount + 1);
+  configFile.close();
+  char dataFilename[12];
+  sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
+  // Create a new data file.
+  dataFile = SD.open(dataFilename, FILE_WRITE);
+  if (dataFile) {
+    DEBUG_PRINT(F("Opened "));
+    DEBUG_PRINTLN(dataFilename);
+  } else {
+    DEBUG_PRINTLN(F("ERROR: Could not open the data file."));
+    while (1);
+  }
+}
 
 void setup() {
   DEBUG_BEGIN_SERIAL(115200);
@@ -54,65 +136,45 @@ void setup() {
   }
   DEBUG_PRINTLN(F("SD card initialization done."));
 
+  // Initialize and configure the Pozyx devices.
   if(Pozyx.begin() == POZYX_FAILURE){
     DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
     while (1);
   }
   DEBUG_PRINTLN(F("Connected to Pozyx shield"));
-
   DEBUG_PRINTLN(F("Configuring Pozyx..."));
   // Clear all previous devices in the device list.
   Pozyx.clearDevices(remote_id);
   // Set the devices from a CSV file on the SD card.
-  setUpPozyxFromCSV("/POZYXCFG.CSV");
+  setupPozyxFromCSV("/POZ_CONF.CSV");
   // Set the positioning algorithm.
   Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
-  printCalibrationResult();
+  printTagConfig(remote_id);
 
-  // Define the data file name.
-  dataFile = SD.open("SYSINIT.DAT", O_CREAT | O_RDWR);
-  uint8_t fileCount = 0;
-  if (dataFile.available()) { // 'available' means that there is data to read
-    dataFile.seek(0);
-    fileCount = dataFile.read(); // reads exactly one byte
-    dataFile.seek(0);
-  }
-  dataFile.write(fileCount + 1);
-  dataFile.close();
-  char dataFilename[12];
-  sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
-  // Create a new data file.
-  dataFile = SD.open(dataFilename, FILE_WRITE);
-  if (dataFile) {
-    DEBUG_PRINT(F("Opened "));
-    DEBUG_PRINTLN(dataFilename);
-  } else {
-    DEBUG_PRINTLN(F("Could not open the data file!"));
-    while (1);
-  }
+  // Open the data file.
+  setupRecordFromConfig("/REC_CONF.DAT");
 
   delay(500);
   DEBUG_PRINTLN(F("Starting positioning:"));
 }
 
 void loop() {
-  // Turn on the LED to indicate now is not the time to unplug
+  uint32_t time = millis();
+  // Turn on the LED to indicate that now is not the time to unplug
   analogWrite(LED_BUILTIN, HIGH);
   delay(1000);
-  uint32_t time = millis();
   // Do positioning
   coordinates_t position;
   int status;
   if (remote_id) {
-    status = Pozyx.doRemotePositioning(
-      remote_id, &position, dimension, height, algorithm
-    );
+    status = Pozyx.doRemotePositioning(remote_id, &position,
+                                       dimension, height, algorithm);
   } else {
     // A 0-valued remote id means that positioning is done by the master tag.
     status = Pozyx.doPositioning(&position, dimension, height, algorithm);
   }
   if (status == POZYX_SUCCESS) {
-    printCoordinates(position);
+    printCoordinates(position, remote_id);
     // Write the data.
     dataRow[0] = static_cast<int32_t>(time);
     dataRow[1] = position.x;
@@ -127,20 +189,16 @@ void loop() {
     }
   } else {
     // prints out the error code
-    printErrorCode("positioning");
+    printErrorCode(remote_id);
   }
   // We're done, turn off the LED and wait.
   analogWrite(LED_BUILTIN, LOW);
-  delay(cycle_length - 1000 - (millis() - time));
+  delay(pos_period - (millis() - time));
 }
 
 // prints the coordinates for either humans or for processing
-void printCoordinates(coordinates_t coor){
-  uint16_t network_id = remote_id;
-  if (network_id == NULL){
-    network_id = 0;
-  }
-  DEBUG_PRINT("POS ID 0x");
+void printCoordinates(coordinates_t coor, uint16_t network_id){
+  DEBUG_PRINT("0x");
   DEBUG_PRINTHEX(network_id);
   DEBUG_PRINT(", x(mm): ");
   DEBUG_PRINT(coor.x);
@@ -150,115 +208,47 @@ void printCoordinates(coordinates_t coor){
   DEBUG_PRINTLN(coor.z);
 }
 
-// error printing function for debugging
-void printErrorCode(String operation){
+void printErrorCode(uint16_t network_id) {
   uint8_t error_code;
-  if (remote_id == NULL){
+  if (network_id == 0){
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT(F("ERROR "));
-    DEBUG_PRINT(operation);
-    DEBUG_PRINT(F(", local error code: 0x"));
+    DEBUG_PRINT(F("ERROR on master tag: 0x"));
     DEBUG_PRINTLNHEX(error_code);
     return;
   }
-  int status = Pozyx.getErrorCode(&error_code, remote_id);
+  int status = Pozyx.getErrorCode(&error_code, network_id);
   if (status == POZYX_SUCCESS) {
-    DEBUG_PRINT(F("ERROR "));
-    DEBUG_PRINT(operation);
-    DEBUG_PRINT(F(" on ID 0x"));
-    DEBUG_PRINTHEX(remote_id);
-    DEBUG_PRINT(F(", error code: 0x"));
+    DEBUG_PRINT(F("ERROR on tag 0x"));
+    DEBUG_PRINTHEX(network_id);
+    DEBUG_PRINT(F(": 0x"));
     DEBUG_PRINTLNHEX(error_code);
   } else {
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT(F("ERROR "));
-    DEBUG_PRINT(operation);
-    DEBUG_PRINT(F(", couldn't retrieve remote error code, local error: 0x"));
+    DEBUG_PRINT(F("ERROR on tag 0x"));
+    DEBUG_PRINTHEX(network_id);
+    DEBUG_PRINT(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
     DEBUG_PRINTLNHEX(error_code);
   }
 }
 
-// print out the anchor coordinates
-void printCalibrationResult(){
+void printTagConfig(uint16_t tag_id) {
   uint8_t list_size;
   int status;
-
-  status = Pozyx.getDeviceListSize(&list_size, remote_id);
-  DEBUG_PRINT("list size: ");
-  DEBUG_PRINTLN(status*list_size);
-
-  if(list_size == 0){
-    printErrorCode("configuration");
+  status = Pozyx.getDeviceListSize(&list_size, tag_id);
+  if(status == POZYX_FAILURE){
+    printErrorCode(tag_id);
     return;
   }
+  uint16_t devices_id[list_size];
+  status &= Pozyx.getDeviceIds(devices_id, list_size, tag_id);
 
-  uint16_t device_ids[list_size];
-  status &= Pozyx.getDeviceIds(device_ids, list_size, remote_id);
-
-  DEBUG_PRINTLN(F("Calibration result:"));
-  DEBUG_PRINT(F("Anchors found: "));
+  DEBUG_PRINT(F("Anchors configured: "));
   DEBUG_PRINTLN(list_size);
 
-  coordinates_t anchor_coor;
-  for(int i = 0; i < list_size; i++)
+  coordinates_t anchor_coords;
+  for(int i = 0; i < list_size; ++i)
   {
-    DEBUG_PRINT("ANCHOR,");
-    DEBUG_PRINT("0x");
-    DEBUG_PRINTHEX(device_ids[i]);
-    DEBUG_PRINT(",");
-    Pozyx.getDeviceCoordinates(device_ids[i], &anchor_coor, remote_id);
-    DEBUG_PRINT(anchor_coor.x);
-    DEBUG_PRINT(",");
-    DEBUG_PRINT(anchor_coor.y);
-    DEBUG_PRINT(",");
-    DEBUG_PRINTLN(anchor_coor.z);
-  }
-}
-
-void setUpAnchor(uint16_t network_id, int32_t x, int32_t y, int32_t z){
-  device_coordinates_t anchor;
-  anchor.network_id = network_id;
-  anchor.flag = 0x1;
-  anchor.pos.x = x;
-  anchor.pos.y = y;
-  anchor.pos.z = z;
-  Pozyx.addDevice(anchor, remote_id);
-}
-
-void setUpPozyxFromCSV(const char *filename) {
-  // The expected data is hex(uint32),int32,int32,int32,uint8.
-  CSV_Parser cp("uxLLLuc");
-  // cp.readSDfile won't work if SD.begin wasn't called before.
-  if (cp.readSDfile(filename)) {
-    // These types have to match the size assigned in the format above,
-    // otherwise it will break the data alignment. Conversions can be done per
-    // element later.
-    uint32_t *devices_id = static_cast<uint32_t*>(cp["network_id"]);
-    int32_t *devices_x = static_cast<int32_t*>(cp["x"]);
-    int32_t *devices_y = static_cast<int32_t*>(cp["y"]);
-    int32_t *devices_z = static_cast<int32_t*>(cp["z"]);
-    uint8_t *devices_is_tag = static_cast<uint8_t*>(cp["is_tag"]);
-    size_t num_anchors = 0;
-
-    for(size_t i = 0; i < cp.getRowsCount(); ++i) {
-      if (devices_is_tag[i]) {
-        remote_id = devices_id[i];
-      } else {
-        setUpAnchor(
-          static_cast<uint16_t>(devices_id[i]),
-          devices_x[i],
-          devices_y[i],
-          devices_z[i]
-        );
-        ++num_anchors;
-      }
-    }
-    if (num_anchors > 4){
-      Pozyx.setSelectionOfAnchors(
-        POZYX_ANCHOR_SEL_AUTO, num_anchors, remote_id
-      );
-    }
-  } else {
-    DEBUG_PRINTLN(F("ERROR: The file does not exist..."));
+    Pozyx.getDeviceCoordinates(devices_id[i], &anchor_coords, tag_id);
+    printCoordinates(anchor_coords, devices_id[i]);
   }
 }
