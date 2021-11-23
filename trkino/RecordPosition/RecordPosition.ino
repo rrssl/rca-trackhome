@@ -43,6 +43,62 @@ size_t flush_period = 0;  // flushes every x cycle (disabled if 0)
 size_t cycles = 0;
 
 
+void printCoordinates(coordinates_t coor, uint16_t network_id){
+  Serial.print("0x");
+  Serial.print(network_id, HEX);
+  Serial.print(", x(mm): ");
+  Serial.print(coor.x);
+  Serial.print(", y(mm): ");
+  Serial.print(coor.y);
+  Serial.print(", z(mm): ");
+  Serial.println(coor.z);
+}
+
+void printErrorCode(uint16_t network_id) {
+  uint8_t error_code;
+  if (network_id == 0){
+    Pozyx.getErrorCode(&error_code);
+    Serial.print(F("ERROR on master tag: 0x"));
+    Serial.println(error_code, HEX);
+    return;
+  }
+  int status = Pozyx.getErrorCode(&error_code, network_id);
+  if (status == POZYX_SUCCESS) {
+    Serial.print(F("ERROR on tag 0x"));
+    Serial.print(network_id, HEX);
+    Serial.print(F(": 0x"));
+    Serial.println(error_code, HEX);
+  } else {
+    Pozyx.getErrorCode(&error_code);
+    Serial.print(F("ERROR on tag 0x"));
+    Serial.print(network_id, HEX);
+    Serial.print(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
+    Serial.println(error_code, HEX);
+  }
+}
+
+void printTagConfig(uint16_t tag_id) {
+  uint8_t list_size;
+  int status;
+  status = Pozyx.getDeviceListSize(&list_size, tag_id);
+  if(status == POZYX_FAILURE){
+    printErrorCode(tag_id);
+    return;
+  }
+  uint16_t devices_id[list_size];
+  status &= Pozyx.getDeviceIds(devices_id, list_size, tag_id);
+
+  Serial.print(F("Anchors configured: "));
+  Serial.println(list_size);
+
+  coordinates_t anchor_coords;
+  for(int i = 0; i < list_size; ++i)
+  {
+    Pozyx.getDeviceCoordinates(devices_id[i], &anchor_coords, tag_id);
+    printCoordinates(anchor_coords, devices_id[i]);
+  }
+}
+
 // Subroutine of setup(). Has side effects. Will block on error.
 void setupPozyxFromCSV(const char *filename) {
   // The expected data types are hex(uint32),int32,int32,int32,uint8.
@@ -192,61 +248,4 @@ void loop() {
   // We're done, turn off the LED and wait.
   analogWrite(LED_BUILTIN, LOW);
   delay(pos_period - (millis() - time));
-}
-
-// prints the coordinates for either humans or for processing
-void printCoordinates(coordinates_t coor, uint16_t network_id){
-  Serial.print("0x");
-  Serial.print(network_id, HEX);
-  Serial.print(", x(mm): ");
-  Serial.print(coor.x);
-  Serial.print(", y(mm): ");
-  Serial.print(coor.y);
-  Serial.print(", z(mm): ");
-  Serial.println(coor.z);
-}
-
-void printErrorCode(uint16_t network_id) {
-  uint8_t error_code;
-  if (network_id == 0){
-    Pozyx.getErrorCode(&error_code);
-    Serial.print(F("ERROR on master tag: 0x"));
-    Serial.println(error_code, HEX);
-    return;
-  }
-  int status = Pozyx.getErrorCode(&error_code, network_id);
-  if (status == POZYX_SUCCESS) {
-    Serial.print(F("ERROR on tag 0x"));
-    Serial.print(network_id, HEX);
-    Serial.print(F(": 0x"));
-    Serial.println(error_code, HEX);
-  } else {
-    Pozyx.getErrorCode(&error_code);
-    Serial.print(F("ERROR on tag 0x"));
-    Serial.print(network_id, HEX);
-    Serial.print(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
-    Serial.println(error_code, HEX);
-  }
-}
-
-void printTagConfig(uint16_t tag_id) {
-  uint8_t list_size;
-  int status;
-  status = Pozyx.getDeviceListSize(&list_size, tag_id);
-  if(status == POZYX_FAILURE){
-    printErrorCode(tag_id);
-    return;
-  }
-  uint16_t devices_id[list_size];
-  status &= Pozyx.getDeviceIds(devices_id, list_size, tag_id);
-
-  Serial.print(F("Anchors configured: "));
-  Serial.println(list_size);
-
-  coordinates_t anchor_coords;
-  for(int i = 0; i < list_size; ++i)
-  {
-    Pozyx.getDeviceCoordinates(devices_id[i], &anchor_coords, tag_id);
-    printCoordinates(anchor_coords, devices_id[i]);
-  }
 }
