@@ -10,17 +10,11 @@
 
 #define DEBUG
 #ifdef DEBUG
-  #define DEBUG_BEGIN_SERIAL(x) Serial.begin(x)
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
-  #define DEBUG_PRINTHEX(x) Serial.print(x, HEX)
-  #define DEBUG_PRINTLNHEX(x) Serial.println(x, HEX)
 #else
-  #define DEBUG_BEGIN_SERIAL(x)
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
-  #define DEBUG_PRINTHEX(x)
-  #define DEBUG_PRINTLNHEX(x)
 #endif
 
 // --- ARDUINO CONFIG ---
@@ -126,7 +120,7 @@ void setupRecordFromConfig(const char *filename) {
 }
 
 void setup() {
-  DEBUG_BEGIN_SERIAL(115200);
+  Serial.begin(115200);
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
@@ -147,9 +141,11 @@ void setup() {
   Pozyx.clearDevices(remote_id);
   // Set the devices from a CSV file on the SD card.
   setupPozyxFromCSV("/POZ_CONF.CSV");
+#ifdef DEBUG
+  printTagConfig(remote_id);
+#endif
   // Set the positioning algorithm.
   Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
-  printTagConfig(remote_id);
 
   // Open the data file.
   setupRecordFromConfig("/REC_CONF.DAT");
@@ -174,7 +170,9 @@ void loop() {
     status = Pozyx.doPositioning(&position, dimension, height, algorithm);
   }
   if (status == POZYX_SUCCESS) {
+#ifdef DEBUG
     printCoordinates(position, remote_id);
+#endif
     // Write the data.
     dataRow[0] = static_cast<int32_t>(time);
     dataRow[1] = position.x;
@@ -198,36 +196,36 @@ void loop() {
 
 // prints the coordinates for either humans or for processing
 void printCoordinates(coordinates_t coor, uint16_t network_id){
-  DEBUG_PRINT("0x");
-  DEBUG_PRINTHEX(network_id);
-  DEBUG_PRINT(", x(mm): ");
-  DEBUG_PRINT(coor.x);
-  DEBUG_PRINT(", y(mm): ");
-  DEBUG_PRINT(coor.y);
-  DEBUG_PRINT(", z(mm): ");
-  DEBUG_PRINTLN(coor.z);
+  Serial.print("0x");
+  Serial.print(network_id, HEX);
+  Serial.print(", x(mm): ");
+  Serial.print(coor.x);
+  Serial.print(", y(mm): ");
+  Serial.print(coor.y);
+  Serial.print(", z(mm): ");
+  Serial.println(coor.z);
 }
 
 void printErrorCode(uint16_t network_id) {
   uint8_t error_code;
   if (network_id == 0){
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT(F("ERROR on master tag: 0x"));
-    DEBUG_PRINTLNHEX(error_code);
+    Serial.print(F("ERROR on master tag: 0x"));
+    Serial.println(error_code, HEX);
     return;
   }
   int status = Pozyx.getErrorCode(&error_code, network_id);
   if (status == POZYX_SUCCESS) {
-    DEBUG_PRINT(F("ERROR on tag 0x"));
-    DEBUG_PRINTHEX(network_id);
-    DEBUG_PRINT(F(": 0x"));
-    DEBUG_PRINTLNHEX(error_code);
+    Serial.print(F("ERROR on tag 0x"));
+    Serial.print(network_id, HEX);
+    Serial.print(F(": 0x"));
+    Serial.println(error_code, HEX);
   } else {
     Pozyx.getErrorCode(&error_code);
-    DEBUG_PRINT(F("ERROR on tag 0x"));
-    DEBUG_PRINTHEX(network_id);
-    DEBUG_PRINT(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
-    DEBUG_PRINTLNHEX(error_code);
+    Serial.print(F("ERROR on tag 0x"));
+    Serial.print(network_id, HEX);
+    Serial.print(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
+    Serial.println(error_code, HEX);
   }
 }
 
@@ -242,8 +240,8 @@ void printTagConfig(uint16_t tag_id) {
   uint16_t devices_id[list_size];
   status &= Pozyx.getDeviceIds(devices_id, list_size, tag_id);
 
-  DEBUG_PRINT(F("Anchors configured: "));
-  DEBUG_PRINTLN(list_size);
+  Serial.print(F("Anchors configured: "));
+  Serial.println(list_size);
 
   coordinates_t anchor_coords;
   for(int i = 0; i < list_size; ++i)
