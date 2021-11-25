@@ -19,30 +19,81 @@
 
 // --- ARDUINO CONFIG ---
 // Pin used by the SD card. It is 4 on the Ethernet board.
-const uint8_t chipSelect = 4;
+uint8_t const chip_select = 4;
 // --- POZYX CONFIG ---
 // Id of the tag performing the positioning (0 means master tag).
 uint16_t remote_id = 0;
 // Positioning algorithm.
-uint8_t algorithm = POZYX_POS_ALG_UWB_ONLY;
+uint8_t const algorithm = POZYX_POS_ALG_UWB_ONLY;
 // Positioning dimensions (2/2.5/3D).
-uint8_t dimension = POZYX_3D;
+uint8_t const dimension = POZYX_3D;
 // Height of device, required in 2.5D positioning.
-int32_t height = 1000;
+int32_t const height = 1000;
+// --- CUSTOM CONFIG --
+// Positioning period in ms. It should probably not be lower than 2000ms!
+size_t const pos_period = 10000;
+// dataRow is 16 bytes long, so it takes 512/16=32 records to actually write to
+// the SD card. With 10s cycles, this means 1 write every 5min 20s.
+// The parameters below allow to flush more often.
+size_t const flush_period = 0;  // flushes every x cycle (disabled if 0)
+
+// Error messages.
+char const _sdc_err[] PROGMEM = "SD card initialization failed";
+char const _poz_err[] PROGMEM = "Unable to connect to the Pozyx shield";
+char const _csv_err[] PROGMEM = "Unable to open the CSV file";
+char const _dat_err[] PROGMEM = "Unable to open the DAT file";
+char const _tag_err[] PROGMEM = "Tag %#06x has code %#3x";
+char const _ret_err[] PROGMEM = "Unable to retrieve code for tag %#06x";
+char const * const _errors[] PROGMEM = {
+  _sdc_err, _poz_err, _csv_err, _dat_err, _tag_err, _ret_err
+};
+uint8_t const sdc_err = 0;
+uint8_t const poz_err = 1;
+uint8_t const csv_err = 2;
+uint8_t const dat_err = 3;
+uint8_t const tag_err = 4;
+uint8_t const ret_err = 5;
 
 // File used to store the positioning data at every loop.
 File dataFile;
 // Each record is (t, x, y, z) in [ms, mm, mm, mm].
 int32_t dataRow[4] = {0};
-// Positioning period in ms. It should probably not be lower than 2000ms!
-size_t pos_period = 10000;
-// dataRow is 16 bytes long, so it takes 512/16=32 records to actually write to
-// the SD card. With 10s cycles, this means 1 write every 5min 20s.
-// The parameters below allow to flush more often.
-size_t flush_period = 0;  // flushes every x cycle (disabled if 0)
+// Number of positions recorded so far.
 size_t cycles = 0;
 
 
+void printError(uint8_t error, uint16_t tag_id = 0, uint8_t tag_error_code = 0) {
+  uint8_t buffer_len = 40;  // max length of an error message
+  char err_buffer[buffer_len];
+  // strcpy_P(dest, src) copies a string from program space to SRAM.
+  // pgm_read_word(address) reads a word from program space.
+  strcpy_P(err_buffer,
+           reinterpret_cast<char *>(pgm_read_word(&(_errors[error]))));
+  if (error == tag_err) {
+    char tmp_buffer[buffer_len];
+    sprintf(tmp_buffer, err_buffer, tag_id, tag_error_code);
+    strcpy(err_buffer, tmp_buffer);
+  }
+  if (error == ret_err) {
+    char tmp_buffer[buffer_len];
+    sprintf(tmp_buffer, err_buffer, tag_id);
+    strcpy(err_buffer, tmp_buffer);
+  }
+  Serial.print(F("ERROR: "));
+  Serial.println(err_buffer);
+}
+
+void printTagError(uint16_t network_id) {
+  uint8_t err_code;
+  int status = Pozyx.getErrorCode(&err_code, network_id);
+  if (network_id != 0 && status != POZYX_SUCCESS) {
+    printError(ret_err, network_id);
+    Pozyx.getErrorCode(&err_code);
+  }
+  printError(tag_err, network_id, err_code);
+}
+
+#ifdef DEBUG
 void printCoordinates(coordinates_t coor, uint16_t network_id){
   Serial.print("0x");
   Serial.print(network_id, HEX);
@@ -54,35 +105,12 @@ void printCoordinates(coordinates_t coor, uint16_t network_id){
   Serial.println(coor.z);
 }
 
-void printErrorCode(uint16_t network_id) {
-  uint8_t error_code;
-  if (network_id == 0){
-    Pozyx.getErrorCode(&error_code);
-    Serial.print(F("ERROR on master tag: 0x"));
-    Serial.println(error_code, HEX);
-    return;
-  }
-  int status = Pozyx.getErrorCode(&error_code, network_id);
-  if (status == POZYX_SUCCESS) {
-    Serial.print(F("ERROR on tag 0x"));
-    Serial.print(network_id, HEX);
-    Serial.print(F(": 0x"));
-    Serial.println(error_code, HEX);
-  } else {
-    Pozyx.getErrorCode(&error_code);
-    Serial.print(F("ERROR on tag 0x"));
-    Serial.print(network_id, HEX);
-    Serial.print(F("; but couldn't retrieve remote error. ERROR on master tag: 0x"));
-    Serial.println(error_code, HEX);
-  }
-}
-
 void printTagConfig(uint16_t tag_id) {
   uint8_t list_size;
   int status;
   status = Pozyx.getDeviceListSize(&list_size, tag_id);
-  if(status == POZYX_FAILURE){
-    printErrorCode(tag_id);
+  if(status != POZYX_SUCCESS){
+    printTagError(tag_id);
     return;
   }
   uint16_t devices_id[list_size];
@@ -98,6 +126,7 @@ void printTagConfig(uint16_t tag_id) {
     printCoordinates(anchor_coords, devices_id[i]);
   }
 }
+#endif // DEBUG
 
 // Subroutine of setup(). Has side effects. Will block on error.
 void setupPozyxFromCSV(const char *filename) {
@@ -105,7 +134,7 @@ void setupPozyxFromCSV(const char *filename) {
   CSV_Parser cp("uxLLLuc");
   // NB: cp.readSDfile requires SD.begin to have been called beforehand.
   if (!cp.readSDfile(filename)) {
-    DEBUG_PRINTLN(F("ERROR: CSV file not found."));
+    printError(csv_err);
     while (1);
   }
   // These types have to match the size assigned in the format string above,
@@ -139,7 +168,7 @@ void setupPozyxFromCSV(const char *filename) {
       if (status == POZYX_SUCCESS) {
         ++num_anchors;
       } else {
-        printErrorCode(remote_id);
+        printTagError(remote_id);
         while (1);
       }
     }
@@ -166,11 +195,8 @@ void setupRecordFromConfig(const char *filename) {
   sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
   // Create a new data file.
   dataFile = SD.open(dataFilename, FILE_WRITE);
-  if (dataFile) {
-    DEBUG_PRINT(F("Opened "));
-    DEBUG_PRINTLN(dataFilename);
-  } else {
-    DEBUG_PRINTLN(F("ERROR: Could not open the data file."));
+  if (!dataFile) {
+    printError(dat_err);
     while (1);
   }
 }
@@ -180,15 +206,15 @@ void setup() {
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
-  if (!SD.begin(chipSelect)) {
-    DEBUG_PRINTLN(F("SD card initialization failed!"));
+  if (!SD.begin(chip_select)) {
+    printError(sdc_err);
     while (1);
   }
   DEBUG_PRINTLN(F("SD card initialization done."));
 
   // Initialize and configure the Pozyx devices.
   if(Pozyx.begin() == POZYX_FAILURE){
-    DEBUG_PRINTLN(F("Unable to connect to Pozyx shield!"));
+    printError(poz_err);
     while (1);
   }
   DEBUG_PRINTLN(F("Connected to Pozyx shield"));
@@ -205,6 +231,8 @@ void setup() {
 
   // Open the data file.
   setupRecordFromConfig("/REC_CONF.DAT");
+  DEBUG_PRINT(F("Opened "));
+  DEBUG_PRINTLN(dataFile.name());
 
   delay(500);
   DEBUG_PRINTLN(F("Starting positioning:"));
@@ -243,7 +271,7 @@ void loop() {
     }
   } else {
     // prints out the error code
-    printErrorCode(remote_id);
+    printTagError(remote_id);
   }
   // We're done, turn off the LED and wait.
   analogWrite(LED_BUILTIN, LOW);
