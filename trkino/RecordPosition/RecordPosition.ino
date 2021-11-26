@@ -1,12 +1,13 @@
 /**
   Record positions using the Pozyx shield.
 */
-#include <Pozyx.h>
-#include <Pozyx_definitions.h>
-#include <Wire.h>
+#include <EEPROM.h>
 #include <SPI.h>
 #include <SD.h>
 #include <CSV_Parser.h>
+#include <Pozyx.h>
+#include <Pozyx_definitions.h>
+#include <Wire.h>
 
 #define DEBUG
 #ifdef DEBUG
@@ -54,6 +55,8 @@ uint8_t const dat_err = 3;
 uint8_t const tag_err = 4;
 uint8_t const ret_err = 5;
 
+// Session id. Max 255. Incremented at every restart.
+uint8_t current_session_id;
 // File used to store the positioning data at every loop.
 File dataFile;
 // Each record is (t, x, y, z) in [ms, mm, mm, mm].
@@ -62,7 +65,8 @@ int32_t dataRow[4] = {0};
 size_t cycles = 0;
 
 
-void printError(uint8_t error, uint16_t tag_id = 0, uint8_t tag_error_code = 0) {
+void printError(uint8_t error, uint16_t tag_id = 0,
+                uint8_t tag_error_code = 0, uint8_t session_id = 255) {
   uint8_t buffer_len = 40;  // max length of an error message
   char err_buffer[buffer_len];
   // strcpy_P(dest, src) copies a string from program space to SRAM.
@@ -78,6 +82,11 @@ void printError(uint8_t error, uint16_t tag_id = 0, uint8_t tag_error_code = 0) 
     char tmp_buffer[buffer_len];
     sprintf(tmp_buffer, err_buffer, tag_id);
     strcpy(err_buffer, tmp_buffer);
+  }
+  if (session_id != 255) {
+    char session_str[6];
+    sprintf(session_str, "[%03hhu] ", session_id);
+    Serial.print(session_str);
   }
   Serial.print(F("ERROR: "));
   Serial.println(err_buffer);
@@ -180,19 +189,10 @@ void setupPozyxFromCSV(const char *filename) {
 }
 
 // Subroutine of setup(). Has side effects. Will block on error.
-void setupRecordFromConfig(const char *filename) {
+void setupRecord() {
   // Define the data file name.
-  File configFile = SD.open(filename, O_CREAT | O_RDWR);
-  uint8_t fileCount;
-  if (configFile.available()) { // 'available' means that there is data to read
-    fileCount = configFile.peek(); // reads exactly one byte
-  } else {
-    fileCount = 0;
-  }
-  configFile.write(fileCount + 1);
-  configFile.close();
-  char dataFilename[12];
-  sprintf(dataFilename, "REC%05hhu.DAT", fileCount);
+  char dataFilename[12];  // SD lib expects 8.3 filenames
+  sprintf(dataFilename, "REC%05hhu.DAT", current_session_id);  // hhu = uint_8
   // Create a new data file.
   dataFile = SD.open(dataFilename, FILE_WRITE);
   if (!dataFile) {
@@ -203,6 +203,12 @@ void setupRecordFromConfig(const char *filename) {
 
 void setup() {
   Serial.begin(115200);
+
+  // Define the session id.
+  current_session_id = EEPROM.read(0) + 1;
+  EEPROM.write(0, current_session_id);
+  DEBUG_PRINT(F("Session "));
+  DEBUG_PRINTLN(current_session_id);
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
@@ -230,7 +236,7 @@ void setup() {
   Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
 
   // Open the data file.
-  setupRecordFromConfig("/REC_CONF.DAT");
+  setupRecord();
   DEBUG_PRINT(F("Opened "));
   DEBUG_PRINTLN(dataFile.name());
 
