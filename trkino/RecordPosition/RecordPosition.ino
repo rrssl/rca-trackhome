@@ -1,5 +1,26 @@
 /**
   Record positions using the Pozyx shield.
+
+  ////////////////////////////////////////////////////////////////
+  EEPROM LAYOUT             Total size: 1024B             [-] = 1B
+
+   Session id, 1B (0 <= x < 255)
+   ^  Address of the last setup error, 1B (4 <= x < 32)
+   |  ^ Address of the last loop error, 2B (32 <= x < 512)
+   | _| ^
+   || __| Setup errors (blocking)        Loop errors
+   |||   ___________/\___________  ___________/\___________
+   |||  /                        \/                        \
+  [----][----][----]..[----][----][----][----]..[----][----][----]..
+  0     4      |||___             32                        512
+               ||_   |
+               |  |  v
+               |  v  Tag id (if applicable), 2B
+               v  Error code, 1B
+               Session id, 1B
+
+  ////////////////////////////////////////////////////////////////
+
 */
 #include <EEPROM.h>
 #include <SPI.h>
@@ -13,10 +34,190 @@
 #ifdef DEBUG
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
+
+  void printCoordinates(coordinates_t coor, uint16_t network_id){
+    Serial.print("0x");
+    Serial.print(network_id, HEX);
+    Serial.print(", x(mm): ");
+    Serial.print(coor.x);
+    Serial.print(", y(mm): ");
+    Serial.print(coor.y);
+    Serial.print(", z(mm): ");
+    Serial.println(coor.z);
+  }
+
+  void printTagConfig(uint16_t tag_id) {
+    uint8_t list_size;
+    // The following may not work if the tag encounters an error, but if that
+    // was the case, it would probably have already errored out during config.
+    Pozyx.getDeviceListSize(&list_size, tag_id);
+    uint16_t devices_id[list_size];
+    Pozyx.getDeviceIds(devices_id, list_size, tag_id);
+
+    Serial.print(F("Anchors configured: "));
+    Serial.println(list_size);
+
+    coordinates_t anchor_coords;
+    for(uint8_t i = 0; i < list_size; ++i)
+    {
+      Pozyx.getDeviceCoordinates(devices_id[i], &anchor_coords, tag_id);
+      printCoordinates(anchor_coords, devices_id[i]);
+    }
+  }
+
 #else
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
-#endif
+#endif // DEBUG
+
+
+// --- ERROR MANAGEMENT ---
+// Error messages.
+char const _sdc_err_str[] PROGMEM = "SD card initialization failed";
+char const _poz_err_str[] PROGMEM = "Unable to connect to the Pozyx shield";
+char const _csv_err_str[] PROGMEM = "Unable to open the CSV file";
+char const _dat_err_str[] PROGMEM = "Unable to open the DAT file";
+char const _tag_err_str[] PROGMEM = "Tag %#6x encountered an error";
+char const _ret_err_str[] PROGMEM = "Tag %#6x is unreachable";
+char const _cod_err_str[] PROGMEM = "Error code for tag %#6x: %#3x";
+char const * const _err_str_arr[] PROGMEM = {
+  _sdc_err_str,
+  _poz_err_str,
+  _csv_err_str,
+  _dat_err_str,
+  _tag_err_str,
+  _ret_err_str,
+  _cod_err_str
+};
+uint8_t const sdc_err_t = 0;
+uint8_t const poz_err_t = 1;
+uint8_t const csv_err_t = 2;
+uint8_t const dat_err_t = 3;
+uint8_t const tag_err_t = 4;
+uint8_t const ret_err_t = 5;
+uint8_t const cod_err_t = 6;
+uint8_t const max_err_str_len = 40;  // max length of an error message
+
+void printError(uint8_t err_t, uint16_t tag_id = 0,
+                uint8_t tag_error_code = 0, uint8_t session_id = 255) {
+  char err_buffer[max_err_str_len];
+  // strcpy_P(dest, src) copies a string from program space to SRAM.
+  // pgm_read_word(address) reads a word from program space.
+  strcpy_P(err_buffer,
+           reinterpret_cast<char *>(pgm_read_word(&(_err_str_arr[err_t]))));
+  if (err_t == tag_err_t || err_t == ret_err_t) {
+    char tmp_buffer[max_err_str_len];
+    sprintf(tmp_buffer, err_buffer, tag_id);
+    strcpy(err_buffer, tmp_buffer);
+  }
+  if (err_t == cod_err_t) {
+    char tmp_buffer[max_err_str_len];
+    sprintf(tmp_buffer, err_buffer, tag_id, tag_error_code);
+    strcpy(err_buffer, tmp_buffer);
+  }
+  if (session_id < 255) {
+    char session_str[6];
+    sprintf(session_str, "[%03hhu] ", session_id);
+    Serial.print(session_str);
+  }
+  Serial.print(F("ERROR: "));
+  Serial.println(err_buffer);
+}
+
+struct ErrorLogRecord {
+  uint8_t session_id;
+  uint8_t err_t;
+  uint16_t tag_id;
+};
+
+class ErrorLogRing {
+  public:
+    ErrorLogRing() {}
+
+    ErrorLogRing(uint8_t session_id, uint16_t mem_loc, uint8_t log_size)
+      : session_id_(session_id),
+        mem_beg_(mem_loc),
+        mem_end_(mem_beg_ + log_size*mem_rec_size_) {
+      // Find the oldest (or first empty) record in the ring, aka the 'head'.
+      mem_head_ = mem_beg_;
+      uint8_t head_val = EEPROM.read(mem_head_);
+      if (head_val != mem_null_val_) {  // i.e. the entire ring is not empty
+        uint8_t past_head_val;
+        do {
+          mem_head_ += mem_rec_size_;  // move head forward
+          if (mem_head_ == mem_end_) {
+            mem_head_ = mem_beg_;  // cycle back
+            // Currently, if a single session fills the ring, there is no way
+            // to know which record is the oldest one. In that case, all the
+            // head values would be equal, so a break is needed here to avoid
+            // an infinite loop.
+            break;
+          }
+          past_head_val = head_val;
+          head_val = EEPROM.read(mem_head_);
+        // The first byte of each record should be increasing until it either
+        // reaches mem_null_val_ (empty record) or it drops (oldest record).
+        } while (head_val != mem_null_val_ && head_val >= past_head_val);
+      }
+    }
+
+    // uint16_t getLast() const {
+    //   if (EEPROM.read(mem_beg_) == mem_null_val_) return 0;  // empty ring
+    //   uint16_t last_head = mem_head_ == mem_beg_ ? mem_end_ : mem_head_;
+    //   last_head -= mem_rec_size_;
+    //   return last_head;
+    // }
+
+    uint8_t getSessionId() const {
+      return session_id_;
+    }
+
+    void log(uint8_t err_t, uint16_t tag_id = 0, bool verbose = true) {
+      ErrorLogRecord rec = {session_id_, err_t, tag_id};
+      EEPROM.put(mem_head_, rec);
+      mem_head_ += mem_rec_size_;  // move head forward
+      if (mem_head_ == mem_end_) mem_head_ = mem_beg_;  // cycle back
+      if (verbose) printError(rec.err_t, rec.tag_id, 0, rec.session_id);
+    }
+
+    void replay() const {
+      if (EEPROM.read(mem_beg_) == mem_null_val_) return;  // empty ring
+      uint16_t print_head = mem_head_;
+      ErrorLogRecord rec;
+      do {
+        EEPROM.get(print_head, rec);
+        if (rec.session_id != mem_null_val_) {
+          printError(rec.err_t, rec.tag_id, 0, rec.session_id);
+        }
+        print_head += mem_rec_size_;  // move head forward
+        if (print_head == mem_end_) print_head = mem_beg_;  // cycle back
+      } while (print_head != mem_head_);
+    }
+
+  private:
+    static uint8_t const mem_rec_size_ = 4;
+    static uint8_t const mem_null_val_ = 255;
+    uint16_t mem_beg_;
+    uint16_t mem_end_;
+    uint16_t mem_head_;
+    uint8_t session_id_;
+};
+
+void logTagError(ErrorLogRing & err_log, uint16_t tag_id = 0) {
+  uint8_t err_code;
+  int status = Pozyx.getErrorCode(&err_code, tag_id);
+  if (tag_id != 0 && status != POZYX_SUCCESS) {
+    // Log a retrieval error.
+    err_log.log(ret_err_t, tag_id);
+    // Get the master tag error.
+    tag_id = 0;  // this is for the printError at the end
+    Pozyx.getErrorCode(&err_code);
+  } else {
+    err_log.log(tag_err_t, tag_id);
+  }
+  printError(cod_err_t, tag_id, err_code, err_log.getSessionId());
+}
+
 
 // --- ARDUINO CONFIG ---
 // Pin used by the SD card. It is 4 on the Ethernet board.
@@ -31,6 +232,9 @@ uint8_t const dimension = POZYX_3D;
 // Height of device, required in 2.5D positioning.
 int32_t const height = 1000;
 // --- CUSTOM CONFIG --
+// Supremum for the setup and loop error addresses.
+uint8_t const sup_setup_err_id = 32;
+uint16_t const sup_loop_err_id = 512;
 // Positioning period in ms. It should probably not be lower than 2000ms!
 size_t const pos_period = 10000;
 // dataRow is 16 bytes long, so it takes 512/16=32 records to actually write to
@@ -38,104 +242,17 @@ size_t const pos_period = 10000;
 // The parameters below allow to flush more often.
 size_t const flush_period = 0;  // flushes every x cycle (disabled if 0)
 
-// Error messages.
-char const _sdc_err[] PROGMEM = "SD card initialization failed";
-char const _poz_err[] PROGMEM = "Unable to connect to the Pozyx shield";
-char const _csv_err[] PROGMEM = "Unable to open the CSV file";
-char const _dat_err[] PROGMEM = "Unable to open the DAT file";
-char const _tag_err[] PROGMEM = "Tag %#06x has code %#3x";
-char const _ret_err[] PROGMEM = "Unable to retrieve code for tag %#06x";
-char const * const _errors[] PROGMEM = {
-  _sdc_err, _poz_err, _csv_err, _dat_err, _tag_err, _ret_err
-};
-uint8_t const sdc_err = 0;
-uint8_t const poz_err = 1;
-uint8_t const csv_err = 2;
-uint8_t const dat_err = 3;
-uint8_t const tag_err = 4;
-uint8_t const ret_err = 5;
-
-// Session id. Max 255. Incremented at every restart.
-uint8_t current_session_id;
+// --- GLOBAL VARIABLES ---
 // File used to store the positioning data at every loop.
 File dataFile;
+// Logs used to store setup and loop errors in EEPROM.
+ErrorLogRing setup_log;
+ErrorLogRing loop_log;
 // Each record is (t, x, y, z) in [ms, mm, mm, mm].
 int32_t dataRow[4] = {0};
 // Number of positions recorded so far.
 size_t cycles = 0;
 
-
-void printError(uint8_t error, uint16_t tag_id = 0,
-                uint8_t tag_error_code = 0, uint8_t session_id = 255) {
-  uint8_t buffer_len = 40;  // max length of an error message
-  char err_buffer[buffer_len];
-  // strcpy_P(dest, src) copies a string from program space to SRAM.
-  // pgm_read_word(address) reads a word from program space.
-  strcpy_P(err_buffer,
-           reinterpret_cast<char *>(pgm_read_word(&(_errors[error]))));
-  if (error == tag_err) {
-    char tmp_buffer[buffer_len];
-    sprintf(tmp_buffer, err_buffer, tag_id, tag_error_code);
-    strcpy(err_buffer, tmp_buffer);
-  }
-  if (error == ret_err) {
-    char tmp_buffer[buffer_len];
-    sprintf(tmp_buffer, err_buffer, tag_id);
-    strcpy(err_buffer, tmp_buffer);
-  }
-  if (session_id != 255) {
-    char session_str[6];
-    sprintf(session_str, "[%03hhu] ", session_id);
-    Serial.print(session_str);
-  }
-  Serial.print(F("ERROR: "));
-  Serial.println(err_buffer);
-}
-
-void printTagError(uint16_t network_id) {
-  uint8_t err_code;
-  int status = Pozyx.getErrorCode(&err_code, network_id);
-  if (network_id != 0 && status != POZYX_SUCCESS) {
-    printError(ret_err, network_id);
-    Pozyx.getErrorCode(&err_code);
-  }
-  printError(tag_err, network_id, err_code);
-}
-
-#ifdef DEBUG
-void printCoordinates(coordinates_t coor, uint16_t network_id){
-  Serial.print("0x");
-  Serial.print(network_id, HEX);
-  Serial.print(", x(mm): ");
-  Serial.print(coor.x);
-  Serial.print(", y(mm): ");
-  Serial.print(coor.y);
-  Serial.print(", z(mm): ");
-  Serial.println(coor.z);
-}
-
-void printTagConfig(uint16_t tag_id) {
-  uint8_t list_size;
-  int status;
-  status = Pozyx.getDeviceListSize(&list_size, tag_id);
-  if(status != POZYX_SUCCESS){
-    printTagError(tag_id);
-    return;
-  }
-  uint16_t devices_id[list_size];
-  status &= Pozyx.getDeviceIds(devices_id, list_size, tag_id);
-
-  Serial.print(F("Anchors configured: "));
-  Serial.println(list_size);
-
-  coordinates_t anchor_coords;
-  for(int i = 0; i < list_size; ++i)
-  {
-    Pozyx.getDeviceCoordinates(devices_id[i], &anchor_coords, tag_id);
-    printCoordinates(anchor_coords, devices_id[i]);
-  }
-}
-#endif // DEBUG
 
 // Subroutine of setup(). Has side effects. Will block on error.
 void setupPozyxFromCSV(const char *filename) {
@@ -143,7 +260,7 @@ void setupPozyxFromCSV(const char *filename) {
   CSV_Parser cp("uxLLLuc");
   // NB: cp.readSDfile requires SD.begin to have been called beforehand.
   if (!cp.readSDfile(filename)) {
-    printError(csv_err);
+    setup_log.log(csv_err_t);
     while (1);
   }
   // These types have to match the size assigned in the format string above,
@@ -177,7 +294,7 @@ void setupPozyxFromCSV(const char *filename) {
       if (status == POZYX_SUCCESS) {
         ++num_anchors;
       } else {
-        printTagError(remote_id);
+        logTagError(setup_log, remote_id);
         while (1);
       }
     }
@@ -189,14 +306,14 @@ void setupPozyxFromCSV(const char *filename) {
 }
 
 // Subroutine of setup(). Has side effects. Will block on error.
-void setupRecord() {
+void setupDataRecord(uint8_t session_id) {
   // Define the data file name.
   char dataFilename[12];  // SD lib expects 8.3 filenames
-  sprintf(dataFilename, "REC%05hhu.DAT", current_session_id);  // hhu = uint_8
+  sprintf(dataFilename, "REC%05hhu.DAT", session_id);  // hhu = uint_8
   // Create a new data file.
   dataFile = SD.open(dataFilename, FILE_WRITE);
   if (!dataFile) {
-    printError(dat_err);
+    setup_log.log(dat_err_t);
     while (1);
   }
 }
@@ -205,22 +322,30 @@ void setup() {
   Serial.begin(115200);
 
   // Define the session id.
-  current_session_id = EEPROM.read(0) + 1;
-  EEPROM.write(0, current_session_id);
+  uint8_t session_id = (EEPROM.read(0) + 1) % 255;
+  EEPROM.write(0, session_id);
   DEBUG_PRINT(F("Session "));
-  DEBUG_PRINTLN(current_session_id);
+  DEBUG_PRINTLN(session_id);
+
+  // Initialize the error logs.
+  setup_log = ErrorLogRing(session_id, /* mem_loc */ 4, /* log_size */ 7);
+  loop_log = ErrorLogRing(session_id, /* mem_loc */ 32, /* log_size */ 120);
+  Serial.println(F("--- SETUP ERROR LOG ---"));
+  setup_log.replay();
+  Serial.println(F("--- LOOP ERROR LOG ---"));
+  loop_log.replay();
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
   if (!SD.begin(chip_select)) {
-    printError(sdc_err);
+    setup_log.log(sdc_err_t);
     while (1);
   }
   DEBUG_PRINTLN(F("SD card initialization done."));
 
   // Initialize and configure the Pozyx devices.
   if(Pozyx.begin() == POZYX_FAILURE){
-    printError(poz_err);
+    setup_log.log(poz_err_t);
     while (1);
   }
   DEBUG_PRINTLN(F("Connected to Pozyx shield"));
@@ -236,7 +361,7 @@ void setup() {
   Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
 
   // Open the data file.
-  setupRecord();
+  setupDataRecord(session_id);
   DEBUG_PRINT(F("Opened "));
   DEBUG_PRINTLN(dataFile.name());
 
@@ -277,7 +402,7 @@ void loop() {
     }
   } else {
     // prints out the error code
-    printTagError(remote_id);
+    logTagError(loop_log, remote_id);
   }
   // We're done, turn off the LED and wait.
   analogWrite(LED_BUILTIN, LOW);
