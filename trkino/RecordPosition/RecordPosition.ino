@@ -235,10 +235,10 @@ uint8_t const sup_setup_err_id = 32;
 uint16_t const sup_loop_err_id = 512;
 // Positioning period in ms. It should probably not be lower than 2000ms!
 size_t const pos_period = 10000;
-// dataRow is 16 bytes long, so it takes 512/16=32 records to actually write to
-// the SD card. With 10s cycles, this means 1 write every 5min 20s.
-// The parameters below allow to flush more often.
-size_t const flush_period = 0;  // flushes every x cycle (disabled if 0)
+// dataRow is 16 bytes long, so it takes 512/16=32 records to write a full block
+// to the SD card. With 10s cycles, this means 1 write every 5min 20s.
+// It can be flushed more often, but the card will be worn out more quickly.
+size_t const flush_period = 32;  // flushes every x cycle (disabled if 0)
 
 // --- GLOBAL VARIABLES ---
 // File used to store the positioning data at every loop.
