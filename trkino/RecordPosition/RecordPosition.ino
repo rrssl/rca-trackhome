@@ -47,10 +47,12 @@
   }
 
   void printTagConfig(uint16_t tag_id) {
-    uint8_t list_size;
-    // The following may not work if the tag encounters an error, but if that
-    // was the case, it would probably have already errored out during config.
-    Pozyx.getDeviceListSize(&list_size, tag_id);
+    uint8_t list_size = 0;
+    int status = Pozyx.getDeviceListSize(&list_size, tag_id);
+    if (status != POZYX_SUCCESS || list_size == 0) {
+      Serial.println(F("System Error: Could not retrieve device list"));
+      return;
+    }
     uint16_t devices_id[list_size];
     Pozyx.getDeviceIds(devices_id, list_size, tag_id);
 
@@ -79,7 +81,6 @@ char const _csv_err_str[] PROGMEM = "Unable to open the CSV file";
 char const _dat_err_str[] PROGMEM = "Unable to open the DAT file";
 char const _tag_err_str[] PROGMEM = "Tag %#6x encountered an error";
 char const _ret_err_str[] PROGMEM = "Tag %#6x is unreachable";
-char const _cod_err_str[] PROGMEM = "Error code for tag %#6x: %#3x";
 char const * const _err_str_arr[] PROGMEM = {
   _sdc_err_str,
   _poz_err_str,
@@ -87,7 +88,6 @@ char const * const _err_str_arr[] PROGMEM = {
   _dat_err_str,
   _tag_err_str,
   _ret_err_str,
-  _cod_err_str
 };
 uint8_t const sdc_err_t = 0;
 uint8_t const poz_err_t = 1;
@@ -95,11 +95,20 @@ uint8_t const csv_err_t = 2;
 uint8_t const dat_err_t = 3;
 uint8_t const tag_err_t = 4;
 uint8_t const ret_err_t = 5;
-uint8_t const cod_err_t = 6;
 uint8_t const max_err_str_len = 40;  // max length of an error message
 
-void printError(uint8_t err_t, uint16_t tag_id = 0,
-                uint8_t tag_error_code = 0, uint8_t session_id = 255) {
+void printError(uint8_t err_t, uint8_t session_id = 255, uint16_t tag_id = 0,
+                bool use_pozyx_error = false) {
+  if (session_id < 255) {
+    char session_str[6];
+    sprintf(session_str, "[%03hhu] ", session_id);
+    Serial.print(session_str);
+  }
+  if (err_t == tag_err_t && use_pozyx_error) {
+    Serial.print(F("Pozyx "));
+    Serial.println(Pozyx.getSystemError(tag_id));
+    return;
+  }
   char err_buffer[max_err_str_len];
   // strcpy_P(dest, src) copies a string from program space to SRAM.
   // pgm_read_word(address) reads a word from program space.
@@ -110,17 +119,7 @@ void printError(uint8_t err_t, uint16_t tag_id = 0,
     sprintf(tmp_buffer, err_buffer, tag_id);
     strcpy(err_buffer, tmp_buffer);
   }
-  if (err_t == cod_err_t) {
-    char tmp_buffer[max_err_str_len];
-    sprintf(tmp_buffer, err_buffer, tag_id, tag_error_code);
-    strcpy(err_buffer, tmp_buffer);
-  }
-  if (session_id < 255) {
-    char session_str[6];
-    sprintf(session_str, "[%03hhu] ", session_id);
-    Serial.print(session_str);
-  }
-  Serial.print(F("ERROR: "));
+  Serial.print(F("System Error: "));
   Serial.println(err_buffer);
 }
 
@@ -177,7 +176,7 @@ class ErrorLogRing {
       EEPROM.put(mem_head_, rec);
       mem_head_ += mem_rec_size_;  // move head forward
       if (mem_head_ == mem_end_) mem_head_ = mem_beg_;  // cycle back
-      if (verbose) printError(rec.err_t, rec.tag_id, 0, rec.session_id);
+      if (verbose) printError(rec.err_t, rec.session_id, rec.tag_id);
     }
 
     void replay() const {
@@ -187,7 +186,7 @@ class ErrorLogRing {
       do {
         EEPROM.get(print_head, rec);
         if (rec.session_id != mem_null_val_) {
-          printError(rec.err_t, rec.tag_id, 0, rec.session_id);
+          printError(rec.err_t, rec.session_id, rec.tag_id);
         }
         print_head += mem_rec_size_;  // move head forward
         if (print_head == mem_end_) print_head = mem_beg_;  // cycle back
@@ -209,13 +208,12 @@ void logTagError(ErrorLogRing & err_log, uint16_t tag_id = 0) {
   if (tag_id != 0 && status != POZYX_SUCCESS) {
     // Log a retrieval error.
     err_log.log(ret_err_t, tag_id);
-    // Get the master tag error.
-    tag_id = 0;  // this is for the printError at the end
-    Pozyx.getErrorCode(&err_code);
+    tag_id = 0;  // this is so that printError queries the master tag
   } else {
+    // Log a tag error.
     err_log.log(tag_err_t, tag_id);
   }
-  printError(cod_err_t, tag_id, err_code, err_log.getSessionId());
+  printError(tag_err_t, err_log.getSessionId(), tag_id, /* use_pozyx_error */ true);
 }
 
 
