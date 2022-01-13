@@ -254,6 +254,8 @@ size_t cycles = 0;
 
 // Subroutine of setup(). Has side effects. Will block on error.
 void setupPozyxFromCSV(const char *filename) {
+  // Clear all previous devices in the device list.
+  Pozyx.clearDevices(remote_id);
   // The expected data types are hex(uint32),int32,int32,int32,uint8.
   CSV_Parser cp("uxLLLuc");
   // NB: cp.readSDfile requires SD.begin to have been called beforehand.
@@ -300,6 +302,22 @@ void setupPozyxFromCSV(const char *filename) {
   if (num_anchors > 4){
     Pozyx.setSelectionOfAnchors(POZYX_ANCHOR_SEL_AUTO, num_anchors,
                                 remote_id);
+  }
+  // Set the positioning algorithm.
+  Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
+  // Save the configuration to flash memory, so that it remains even if the
+  // tag temporarily disconnects.
+  Pozyx.clearConfiguration(remote_id);
+  // For some reason registers cannot seem to be saved at the same time as device
+  // coordinates (the latter has wrong Zs if registers are saved). However,
+  // experiments so far suggest that these registers have the right value
+  // from the start (even though that value is not the default from the docs).
+  // uint8_t registers[2] = {POZYX_POS_ALG, POZYX_POS_NUM_ANCHORS};
+  // int status = Pozyx.saveRegisters(registers, 2, remote_id);
+  int status = Pozyx.saveNetwork(remote_id);
+  if (status != POZYX_SUCCESS) {
+    logTagError(setup_log, remote_id);
+    while (1);
   }
 }
 
@@ -348,15 +366,11 @@ void setup() {
   }
   DEBUG_PRINTLN(F("Connected to Pozyx shield"));
   DEBUG_PRINTLN(F("Configuring Pozyx..."));
-  // Clear all previous devices in the device list.
-  Pozyx.clearDevices(remote_id);
   // Set the devices from a CSV file on the SD card.
   setupPozyxFromCSV("/POZ_CONF.CSV");
 #ifdef DEBUG
   printTagConfig(remote_id);
 #endif
-  // Set the positioning algorithm.
-  Pozyx.setPositionAlgorithm(algorithm, dimension, remote_id);
 
   // Open the data file.
   setupDataRecord(session_id);
