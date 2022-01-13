@@ -250,6 +250,8 @@ ErrorLogRing loop_log;
 int32_t dataRow[4] = {0};
 // Number of positions recorded so far.
 size_t cycles = 0;
+// Loop error flag.
+bool had_loop_error = false;
 
 
 // Subroutine of setup(). Has side effects. Will block on error.
@@ -350,6 +352,7 @@ void setup() {
   setup_log.replay();
   Serial.println(F("--- LOOP ERROR LOG ---"));
   loop_log.replay();
+  Serial.println(F("--- END OF ALL LOGS ---"));
 
   // Initialize the SD card.
   DEBUG_PRINT(F("Initializing SD card... "));
@@ -398,8 +401,22 @@ void loop() {
   }
   if (status == POZYX_SUCCESS) {
 #ifdef DEBUG
+    if (had_loop_error) {
+      printTagConfig(remote_id);
+      uint8_t val;
+      Pozyx.getPositionAlgorithm(&val, remote_id);
+      Serial.print(F("Position algo (0 = UWB-only): "));
+      Serial.println(val);
+      Pozyx.getPositionDimension(&val, remote_id);
+      Serial.print(F("Position dim (3 = 3D): "));
+      Serial.println(val);
+      Pozyx.getAnchorSelectionMode(&val, remote_id);
+      Serial.print(F("Anchor selection mode (1 = auto): "));
+      Serial.println(val);
+    }
     printCoordinates(position, remote_id);
 #endif
+    had_loop_error = false;
     // Write the data.
     dataRow[0] = static_cast<int32_t>(time);
     dataRow[1] = position.x;
@@ -414,6 +431,7 @@ void loop() {
     }
   } else {
     // prints out the error code
+    had_loop_error = true;
     logTagError(loop_log, remote_id);
   }
   // We're done, turn off the LED and wait.
