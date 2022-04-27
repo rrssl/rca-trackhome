@@ -15,6 +15,38 @@ import pypozyx as px
 from trkpy import track
 
 
+class Tracker:
+    def __init__(self, interface):
+        self.interface = interface
+        self.pos_dim = None
+        self.pos_algo = None
+        self.remote_ids = []
+
+        # Make sure the tracker has no control over the LEDs.
+        led_config = 0x0
+        self.interface.setLedConfig(led_config)
+        for remote_id in self.remote_ids:
+            self.interface.setLedConfig(led_config, remote_id)
+
+    def localize(self, device_id: int = None):
+        """Localize the device."""
+        self.interface.setLed(1, True, device_id)
+        pos = track.do_positioning(
+            self.interface, self.pos_dim, self.pos_algo, device_id
+        )
+        if pos:
+            t_now = time.time()
+            remote_name = track.get_network_name(device_id)
+            print(f"POS [{remote_name}] (t={t_now}s): {pos}")
+        else:
+            print(
+                track.get_latest_error(
+                    self.interface, "Positioning", device_id
+                )
+            )
+        self.interface.setLed(1, False, device_id)
+
+
 def main():
     """Entry point"""
     # Parse arguments and load configuration and profile.
