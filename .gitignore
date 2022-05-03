@@ -1,7 +1,7 @@
 # Custom
 pylintrc
 tags
-config/local.ini
+config/local.*
 *.ipynb
 _*/
 

@@ -7,10 +7,12 @@ import time
 from argparse import ArgumentParser
 from configparser import ConfigParser
 from datetime import datetime
+from pathlib import Path
 from pprint import pprint
 
 import numpy as np
 import pypozyx as px
+import yaml
 
 from trkpy import track
 
@@ -47,16 +49,59 @@ class Tracker:
         self.interface.setLed(1, False, device_id)
 
 
+def get_arg_parser():
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--config',
+        metavar='FILE',
+        required=True,
+        help="Path to the config file"
+    )
+    parser.add_argument(
+        '--profile',
+        required=True,
+        help="Name of the profile"
+    )
+    parser.add_argument(
+        '--interval',
+        type=float,
+        default=.1,
+        help="Interval in seconds between measurements (default 0.1s)"
+    )
+    parser.add_argument(
+        '--save',
+        action='store_true',
+        help="Use this flag to save the measurements"
+    )
+    return parser
+
+
+def get_config():
+    # Load the configuration.
+    aconf, fconf_override = get_arg_parser().parse_known_args()
+    with open(aconf.config, 'r') as handle:
+        fconf = yaml.safe_load(handle)
+    # Override file config with "--section.option val" command line arguments.
+    it = iter(fconf_override)
+    for name, val in zip(it, it):
+        section, option = name[2:].split('.')
+        fconf[section][option] = val
+    # Preprocess paths to make life easier.
+    for section in fconf.values():
+        for key, value in section.items():
+            if not isinstance(value, str):
+                continue
+            if "/" in value or value in (".", "..", "~"):  # UNIX path
+                section[key] = Path(value)
+    # Merge configs.
+    conf = vars(aconf) | fconf['global'] | fconf['tracking']
+    return conf
+
+
 def main():
     """Entry point"""
     # Parse arguments and load configuration and profile.
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument('profile', help="Name of the profile")
-    parser.add_argument('-c', '--config', help="Path to the config file")
-    parser.add_argument('-i', '--interval', type=float, default=.1,
-                        help="Interval between measurements (default 0.1s)")
-    parser.add_argument('--save', action='store_true',
-                        help="Use this flag to save the measurements")
+    parser = get_arg_parser()
     args = parser.parse_args()
     config = ConfigParser()
     config.read(args.config)

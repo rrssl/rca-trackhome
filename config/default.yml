@@ -1,0 +1,7 @@
+global:
+  data_dir: .
+  out_dir: .
+
+tracking:
+  pos_algo: POSITIONING_ALGORITHM_UWB_ONLY
+  pos_dim: DIMENSION_3D
