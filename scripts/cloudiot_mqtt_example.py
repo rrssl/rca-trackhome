@@ -20,8 +20,6 @@ to the device's MQTT topic at a rate of one per second, and then exits.
 Before you run the sample, you must follow the instructions in the README
 for this sample.
 """
-
-# [START iot_mqtt_includes]
 import argparse
 import datetime
 import logging
@@ -32,18 +30,7 @@ import time
 import jwt
 import paho.mqtt.client as mqtt
 
-# [END iot_mqtt_includes]
-
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.CRITICAL)
-
-# The initial backoff time after a disconnection occurs, in seconds.
-minimum_backoff_time = 1
-
-# The maximum backoff time before giving up, in seconds.
-MAXIMUM_BACKOFF_TIME = 32
-
-# Whether to wait with exponential backoff before publishing.
-should_backoff = False
 
 
 def create_jwt(project_id, private_key_file, algorithm):
@@ -90,98 +77,112 @@ def error_str(rc):
     return f"{rc}: {mqtt.error_string(rc)}"
 
 
-def on_connect(unused_client, unused_userdata, unused_flags, rc):
-    """Callback for when a device connects."""
-    print("on_connect", mqtt.connack_string(rc))
+class CloudIOTClient:
+    # The maximum backoff time before giving up, in seconds.
+    maximum_backoff_time = 32
 
-    # After a successful connect, reset backoff time and stop backing off.
-    global should_backoff
-    global minimum_backoff_time
-    should_backoff = False
-    minimum_backoff_time = 1
+    def __init__(
+        self,
+        project_id,
+        cloud_region,
+        registry_id,
+        device_id,
+        private_key_file,
+        algorithm,
+        ca_certs,
+        mqtt_bridge_hostname,
+        mqtt_bridge_port,
+    ):
+        # The client_id is a unique string that identifies this device.
+        # For Google Cloud IoT Core, it must be in the format below.
+        client_id = (
+            f"projects/{project_id}/locations/{cloud_region}/"
+            f"registries/{registry_id}/devices/{device_id}"
+        )
+        print(f"Device client_id is '{client_id}'")
 
+        client = mqtt.Client(client_id=client_id)
 
-def on_disconnect(unused_client, unused_userdata, rc):
-    """Paho callback for when a device disconnects."""
-    print("on_disconnect", error_str(rc))
+        # With Google Cloud IoT Core, the username field is ignored, and the
+        # password field is used to transmit a JWT to authorize the device.
+        client.username_pw_set(
+            username="unused",
+            password=create_jwt(project_id, private_key_file, algorithm)
+        )
 
-    # Since a disconnect occurred, the next loop iteration will wait with
-    # exponential backoff.
-    global should_backoff
-    should_backoff = True
+        # Enable SSL/TLS support.
+        client.tls_set(ca_certs=ca_certs, tls_version=ssl.PROTOCOL_TLSv1_2)
 
+        # Register message callbacks.
+        # https://eclipse.org/paho/clients/python/docs/ describes additional
+        # callbacks that Paho supports. In this example, the callbacks just
+        # print to standard out.
+        client.on_connect = self.on_connect
+        client.on_publish = self.on_publish
+        client.on_disconnect = self.on_disconnect
+        client.on_message = self.on_message
 
-def on_publish(unused_client, unused_userdata, unused_mid):
-    """Paho callback when a message is sent to the broker."""
-    print("on_publish")
+        # Connect to the Google MQTT bridge.
+        client.connect(mqtt_bridge_hostname, mqtt_bridge_port)
 
+        # This is the topic that the device will receive configuration updates
+        # on.
+        mqtt_config_topic = f"/devices/{device_id}/config"
 
-def on_message(unused_client, unused_userdata, message):
-    """Callback when the device receives a message on a subscription."""
-    payload = str(message.payload.decode('utf-8'))
-    print(
-        f"Received message '{payload}' "
-        f"on topic '{message.topic}' with Qos {message.qos}"
-    )
+        # Subscribe to the config topic.
+        client.subscribe(mqtt_config_topic, qos=1)
 
+        # The topic that the device will receive commands on.
+        mqtt_command_topic = f"/devices/{device_id}/commands/#"
 
-def get_client(
-    project_id,
-    cloud_region,
-    registry_id,
-    device_id,
-    private_key_file,
-    algorithm,
-    ca_certs,
-    mqtt_bridge_hostname,
-    mqtt_bridge_port,
-):
-    """Create our MQTT client."""
-    # The client_id is a unique string that identifies this device.
-    # For Google Cloud IoT Core, it must be in the format below.
-    client_id = (
-        f"projects/{project_id}/locations/{cloud_region}/"
-        f"registries/{registry_id}/devices/{device_id}"
-    )
-    print(f"Device client_id is '{client_id}'")
+        # Subscribe to the commands topic, QoS 1 enables message
+        # acknowledgement.
+        print(f"Subscribing to {mqtt_command_topic}")
+        client.subscribe(mqtt_command_topic, qos=0)
 
-    client = mqtt.Client(client_id=client_id)
+        self._client = client
+        # Whether to wait with exponential backoff before publishing.
+        self.should_backoff = False
+        # The initial backoff time after a disconnection occurs, in seconds.
+        self.minimum_backoff_time = 1
 
-    # With Google Cloud IoT Core, the username field is ignored, and the
-    # password field is used to transmit a JWT to authorize the device.
-    client.username_pw_set(
-        username="unused",
-        password=create_jwt(project_id, private_key_file, algorithm)
-    )
+    def connect(self, *args, **kwargs):
+        return self._client.connect(*args, **kwargs)
 
-    # Enable SSL/TLS support.
-    client.tls_set(ca_certs=ca_certs, tls_version=ssl.PROTOCOL_TLSv1_2)
+    def disconnect(self, *args, **kwargs):
+        return self._client.disconnect(*args, **kwargs)
 
-    # Register message callbacks. https://eclipse.org/paho/clients/python/docs/
-    # describes additional callbacks that Paho supports. In this example, the
-    # callbacks just print to standard out.
-    client.on_connect = on_connect
-    client.on_publish = on_publish
-    client.on_disconnect = on_disconnect
-    client.on_message = on_message
+    def loop(self, *args, **kwargs):
+        return self._client.loop(*args, **kwargs)
 
-    # Connect to the Google MQTT bridge.
-    client.connect(mqtt_bridge_hostname, mqtt_bridge_port)
+    def publish(self, *args, **kwargs):
+        return self._client.publish(*args, **kwargs)
 
-    # This is the topic that the device will receive configuration updates on.
-    mqtt_config_topic = f"/devices/{device_id}/config"
+    def on_connect(self, unused_client, unused_userdata, unused_flags, rc):
+        """Callback for when a device connects."""
+        print("on_connect", mqtt.connack_string(rc))
+        # After a successful connect, reset backoff time and stop backing off.
+        self.should_backoff = False
+        self.minimum_backoff_time = 1
 
-    # Subscribe to the config topic.
-    client.subscribe(mqtt_config_topic, qos=1)
+    def on_disconnect(self, unused_client, unused_userdata, rc):
+        """Paho callback for when a device disconnects."""
+        print("on_disconnect", error_str(rc))
+        # Since a disconnect occurred, the next loop iteration will wait with
+        # exponential backoff.
+        self.should_backoff = True
 
-    # The topic that the device will receive commands on.
-    mqtt_command_topic = f"/devices/{device_id}/commands/#"
+    def on_publish(self, unused_client, unused_userdata, unused_mid):
+        """Paho callback when a message is sent to the broker."""
+        print("on_publish")
 
-    # Subscribe to the commands topic, QoS 1 enables message acknowledgement.
-    print(f"Subscribing to {mqtt_command_topic}")
-    client.subscribe(mqtt_command_topic, qos=0)
-
-    return client
+    def on_message(self, unused_client, unused_userdata, message):
+        """Callback when the device receives a message on a subscription."""
+        payload = str(message.payload.decode('utf-8'))
+        print(
+            f"Received message '{payload}' "
+            f"on topic '{message.topic}' with Qos {message.qos}"
+        )
 
 
 def parse_command_line_args():
@@ -273,11 +274,8 @@ def parse_command_line_args():
     return parser.parse_args()
 
 
-def mqtt_device_demo(args):
-    """Connects a device, sends data, and receives data."""
-    # [START iot_mqtt_run]
-    global minimum_backoff_time
-    global MAXIMUM_BACKOFF_TIME
+def main():
+    args = parse_command_line_args()
 
     # Publish to the events or state topic based on the flag.
     sub_topic = "events" if args.message_type == "event" else "state"
@@ -286,7 +284,7 @@ def mqtt_device_demo(args):
 
     jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
     jwt_exp_mins = args.jwt_expires_minutes
-    client = get_client(
+    client = CloudIOTClient(
         args.project_id,
         args.cloud_region,
         args.registry_id,
@@ -304,17 +302,19 @@ def mqtt_device_demo(args):
         client.loop()
 
         # Wait if backoff is required.
-        if should_backoff:
+        if client.should_backoff:
             # If backoff time is too large, give up.
-            if minimum_backoff_time > MAXIMUM_BACKOFF_TIME:
+            if client.minimum_backoff_time > client.maximum_backoff_time:
                 print("Exceeded maximum backoff time. Giving up.")
                 break
 
             # Otherwise, wait and connect again.
-            delay = minimum_backoff_time + random.randint(0, 1000) / 1000.0
+            delay = (
+                client.minimum_backoff_time + random.randint(0, 1000) / 1000.0
+            )
             print(f"Waiting for {delay} before reconnecting.")
             time.sleep(delay)
-            minimum_backoff_time *= 2
+            client.minimum_backoff_time *= 2
             client.connect(args.mqtt_bridge_hostname, args.mqtt_bridge_port)
 
         payload = f"{args.registry_id}/{args.device_id}-payload-{i}"
@@ -328,7 +328,7 @@ def mqtt_device_demo(args):
             jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
             client.loop()
             client.disconnect()
-            client = get_client(
+            client = CloudIOTClient(
                 args.project_id,
                 args.cloud_region,
                 args.registry_id,
@@ -348,12 +348,7 @@ def mqtt_device_demo(args):
         for _ in range(0, 60):
             time.sleep(1)
             client.loop()
-    # [END iot_mqtt_run]
 
-
-def main():
-    args = parse_command_line_args()
-    mqtt_device_demo(args)
     print("Finished.")
 
 
