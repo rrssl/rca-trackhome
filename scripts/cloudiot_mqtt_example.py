@@ -25,7 +25,6 @@ for this sample.
 import argparse
 import datetime
 import logging
-import os
 import random
 import ssl
 import time
@@ -47,7 +46,6 @@ MAXIMUM_BACKOFF_TIME = 32
 should_backoff = False
 
 
-# [START iot_mqtt_jwt]
 def create_jwt(project_id, private_key_file, algorithm):
     """Creates a JWT (https://jwt.io) to establish an MQTT connection.
     Args:
@@ -64,38 +62,32 @@ def create_jwt(project_id, private_key_file, algorithm):
     """
 
     token = {
-        # The time that the token was issued at
-        "iat": datetime.datetime.now(tz=datetime.timezone.utc),
+        # The time that the token was issued at.
+        'iat': datetime.datetime.now(tz=datetime.timezone.utc),
         # The time the token expires.
-        "exp": (
+        'exp': (
             datetime.datetime.now(tz=datetime.timezone.utc)
             + datetime.timedelta(minutes=20)
         ),
         # The audience field should always be set to the GCP project id.
-        "aud": project_id,
+        'aud': project_id,
     }
 
     # Read the private key file.
-    with open(private_key_file, "r") as handle:
+    with open(private_key_file, 'r') as handle:
         private_key = handle.read()
 
     print(
-        "Creating JWT using {} from private key file {}".format(
-            algorithm, private_key_file
-        )
+        f"Creating JWT using {algorithm} "
+        f"from private key file {private_key_file}"
     )
-    print(token)
 
     return jwt.encode(token, private_key, algorithm=algorithm)
 
 
-# [END iot_mqtt_jwt]
-
-
-# [START iot_mqtt_config]
 def error_str(rc):
     """Convert a Paho error to a human readable string."""
-    return "{}: {}".format(rc, mqtt.error_string(rc))
+    return f"{rc}: {mqtt.error_string(rc)}"
 
 
 def on_connect(unused_client, unused_userdata, unused_flags, rc):
@@ -126,11 +118,10 @@ def on_publish(unused_client, unused_userdata, unused_mid):
 
 def on_message(unused_client, unused_userdata, message):
     """Callback when the device receives a message on a subscription."""
-    payload = str(message.payload.decode("utf-8"))
+    payload = str(message.payload.decode('utf-8'))
     print(
-        "Received message '{}' on topic '{}' with Qos {}".format(
-            payload, message.topic, str(message.qos)
-        )
+        f"Received message '{payload}' "
+        f"on topic '{message.topic}' with Qos {message.qos}"
     )
 
 
@@ -145,12 +136,14 @@ def get_client(
     mqtt_bridge_hostname,
     mqtt_bridge_port,
 ):
-    """Create our MQTT client. The client_id is a unique string that identifies
-    this device. For Google Cloud IoT Core, it must be in the format below."""
-    client_id = "projects/{}/locations/{}/registries/{}/devices/{}".format(
-        project_id, cloud_region, registry_id, device_id
+    """Create our MQTT client."""
+    # The client_id is a unique string that identifies this device.
+    # For Google Cloud IoT Core, it must be in the format below.
+    client_id = (
+        f"projects/{project_id}/locations/{cloud_region}/"
+        f"registries/{registry_id}/devices/{device_id}"
     )
-    print("Device client_id is '{}'".format(client_id))
+    print(f"Device client_id is '{client_id}'")
 
     client = mqtt.Client(client_id=client_id)
 
@@ -176,22 +169,19 @@ def get_client(
     client.connect(mqtt_bridge_hostname, mqtt_bridge_port)
 
     # This is the topic that the device will receive configuration updates on.
-    mqtt_config_topic = "/devices/{}/config".format(device_id)
+    mqtt_config_topic = f"/devices/{device_id}/config"
 
     # Subscribe to the config topic.
     client.subscribe(mqtt_config_topic, qos=1)
 
     # The topic that the device will receive commands on.
-    mqtt_command_topic = "/devices/{}/commands/#".format(device_id)
+    mqtt_command_topic = f"/devices/{device_id}/commands/#"
 
     # Subscribe to the commands topic, QoS 1 enables message acknowledgement.
-    print("Subscribing to {}".format(mqtt_command_topic))
+    print(f"Subscribing to {mqtt_command_topic}")
     client.subscribe(mqtt_command_topic, qos=0)
 
     return client
-
-
-# [END iot_mqtt_config]
 
 
 def parse_command_line_args():
@@ -265,15 +255,19 @@ def parse_command_line_args():
         help="Number of messages to publish."
     )
     parser.add_argument(
-        "--private_key_file", required=True, help="Path to private key file."
+        "--private_key_file",
+        required=True,
+        help="Path to private key file."
     )
     parser.add_argument(
         "--project_id",
-        default=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-        help="GCP cloud project name",
+        required=True,
+        help="Google Cloud Platform project name",
     )
     parser.add_argument(
-        "--registry_id", required=True, help="Cloud IoT Core registry id"
+        "--registry_id",
+        required=True,
+        help="Cloud IoT Core registry id"
     )
 
     return parser.parse_args()
@@ -288,7 +282,7 @@ def mqtt_device_demo(args):
     # Publish to the events or state topic based on the flag.
     sub_topic = "events" if args.message_type == "event" else "state"
 
-    mqtt_topic = "/devices/{}/{}".format(args.device_id, sub_topic)
+    mqtt_topic = f"/devices/{args.device_id}/{sub_topic}"
 
     jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
     jwt_exp_mins = args.jwt_expires_minutes
@@ -318,15 +312,17 @@ def mqtt_device_demo(args):
 
             # Otherwise, wait and connect again.
             delay = minimum_backoff_time + random.randint(0, 1000) / 1000.0
-            print("Waiting for {} before reconnecting.".format(delay))
+            print(f"Waiting for {delay} before reconnecting.")
             time.sleep(delay)
             minimum_backoff_time *= 2
             client.connect(args.mqtt_bridge_hostname, args.mqtt_bridge_port)
 
-        payload = "{}/{}-payload-{}".format(args.registry_id, args.device_id, i)
-        print("Publishing message {}/{}: '{}'".format(i, args.num_messages, payload))
-        # [START iot_mqtt_jwt_refresh]
-        seconds_since_issue = (datetime.datetime.now(tz=datetime.timezone.utc) - jwt_iat).seconds
+        payload = f"{args.registry_id}/{args.device_id}-payload-{i}"
+        print(f"Publishing message {i}/{args.num_messages}: '{payload}'")
+
+        seconds_since_issue = (
+            datetime.datetime.now(tz=datetime.timezone.utc) - jwt_iat
+        ).seconds
         if seconds_since_issue > 60 * jwt_exp_mins:
             print("Refreshing token after {}s".format(seconds_since_issue))
             jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -343,7 +339,6 @@ def mqtt_device_demo(args):
                 args.mqtt_bridge_hostname,
                 args.mqtt_bridge_port,
             )
-        # [END iot_mqtt_jwt_refresh]
         # Publish "payload" to the MQTT topic. qos=1 means at least once
         # delivery. Cloud IoT Core also supports qos=0 for at most once
         # delivery.
