@@ -24,165 +24,11 @@ import argparse
 import datetime
 import logging
 import random
-import ssl
 import time
 
-import jwt
-import paho.mqtt.client as mqtt
+from trkpy.publish import CloudIOTClient
 
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.CRITICAL)
-
-
-def create_jwt(project_id, private_key_file, algorithm):
-    """Creates a JWT (https://jwt.io) to establish an MQTT connection.
-    Args:
-     project_id: The cloud project ID this device belongs to
-     private_key_file: A path to a file containing either an RSA256 or
-             ES256 private key.
-     algorithm: The encryption algorithm to use. Either 'RS256' or 'ES256'
-    Returns:
-        A JWT generated from the given project_id and private key, which
-        expires in 20 minutes. After 20 minutes, your client will be
-        disconnected, and a new JWT will have to be generated.
-    Raises:
-        ValueError: If the private_key_file does not contain a known key.
-    """
-
-    token = {
-        # The time that the token was issued at.
-        'iat': datetime.datetime.now(tz=datetime.timezone.utc),
-        # The time the token expires.
-        'exp': (
-            datetime.datetime.now(tz=datetime.timezone.utc)
-            + datetime.timedelta(minutes=20)
-        ),
-        # The audience field should always be set to the GCP project id.
-        'aud': project_id,
-    }
-
-    # Read the private key file.
-    with open(private_key_file, 'r') as handle:
-        private_key = handle.read()
-
-    print(
-        f"Creating JWT using {algorithm} "
-        f"from private key file {private_key_file}"
-    )
-
-    return jwt.encode(token, private_key, algorithm=algorithm)
-
-
-def error_str(rc):
-    """Convert a Paho error to a human readable string."""
-    return f"{rc}: {mqtt.error_string(rc)}"
-
-
-class CloudIOTClient:
-    # The maximum backoff time before giving up, in seconds.
-    maximum_backoff_time = 32
-
-    def __init__(
-        self,
-        project_id,
-        cloud_region,
-        registry_id,
-        device_id,
-        private_key_file,
-        algorithm,
-        ca_certs,
-        mqtt_bridge_hostname,
-        mqtt_bridge_port,
-    ):
-        # The client_id is a unique string that identifies this device.
-        # For Google Cloud IoT Core, it must be in the format below.
-        client_id = (
-            f"projects/{project_id}/locations/{cloud_region}/"
-            f"registries/{registry_id}/devices/{device_id}"
-        )
-        print(f"Device client_id is '{client_id}'")
-
-        client = mqtt.Client(client_id=client_id)
-
-        # With Google Cloud IoT Core, the username field is ignored, and the
-        # password field is used to transmit a JWT to authorize the device.
-        client.username_pw_set(
-            username="unused",
-            password=create_jwt(project_id, private_key_file, algorithm)
-        )
-
-        # Enable SSL/TLS support.
-        client.tls_set(ca_certs=ca_certs, tls_version=ssl.PROTOCOL_TLSv1_2)
-
-        # Register message callbacks.
-        # https://eclipse.org/paho/clients/python/docs/ describes additional
-        # callbacks that Paho supports. In this example, the callbacks just
-        # print to standard out.
-        client.on_connect = self.on_connect
-        client.on_publish = self.on_publish
-        client.on_disconnect = self.on_disconnect
-        client.on_message = self.on_message
-
-        # Connect to the Google MQTT bridge.
-        client.connect(mqtt_bridge_hostname, mqtt_bridge_port)
-
-        # This is the topic that the device will receive configuration updates
-        # on.
-        mqtt_config_topic = f"/devices/{device_id}/config"
-
-        # Subscribe to the config topic.
-        client.subscribe(mqtt_config_topic, qos=1)
-
-        # The topic that the device will receive commands on.
-        mqtt_command_topic = f"/devices/{device_id}/commands/#"
-
-        # Subscribe to the commands topic, QoS 1 enables message
-        # acknowledgement.
-        print(f"Subscribing to {mqtt_command_topic}")
-        client.subscribe(mqtt_command_topic, qos=0)
-
-        self._client = client
-        # Whether to wait with exponential backoff before publishing.
-        self.should_backoff = False
-        # The initial backoff time after a disconnection occurs, in seconds.
-        self.minimum_backoff_time = 1
-
-    def connect(self, *args, **kwargs):
-        return self._client.connect(*args, **kwargs)
-
-    def disconnect(self, *args, **kwargs):
-        return self._client.disconnect(*args, **kwargs)
-
-    def loop(self, *args, **kwargs):
-        return self._client.loop(*args, **kwargs)
-
-    def publish(self, *args, **kwargs):
-        return self._client.publish(*args, **kwargs)
-
-    def on_connect(self, unused_client, unused_userdata, unused_flags, rc):
-        """Callback for when a device connects."""
-        print("on_connect", mqtt.connack_string(rc))
-        # After a successful connect, reset backoff time and stop backing off.
-        self.should_backoff = False
-        self.minimum_backoff_time = 1
-
-    def on_disconnect(self, unused_client, unused_userdata, rc):
-        """Paho callback for when a device disconnects."""
-        print("on_disconnect", error_str(rc))
-        # Since a disconnect occurred, the next loop iteration will wait with
-        # exponential backoff.
-        self.should_backoff = True
-
-    def on_publish(self, unused_client, unused_userdata, unused_mid):
-        """Paho callback when a message is sent to the broker."""
-        print("on_publish")
-
-    def on_message(self, unused_client, unused_userdata, message):
-        """Callback when the device receives a message on a subscription."""
-        payload = str(message.payload.decode('utf-8'))
-        print(
-            f"Received message '{payload}' "
-            f"on topic '{message.topic}' with Qos {message.qos}"
-        )
 
 
 def parse_command_line_args():
@@ -275,6 +121,7 @@ def parse_command_line_args():
 
 
 def main():
+    """Entry point."""
     args = parse_command_line_args()
 
     # Publish to the events or state topic based on the flag.
@@ -324,7 +171,7 @@ def main():
             datetime.datetime.now(tz=datetime.timezone.utc) - jwt_iat
         ).seconds
         if seconds_since_issue > 60 * jwt_exp_mins:
-            print("Refreshing token after {}s".format(seconds_since_issue))
+            print(f"Refreshing token after {seconds_since_issue}s")
             jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
             client.loop()
             client.disconnect()
