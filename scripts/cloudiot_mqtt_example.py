@@ -1,27 +1,10 @@
-#!/usr/bin/env python
-
-# Copyright 2017 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Python sample for connecting to Google Cloud IoT Core via MQTT, using JWT.
-This example connects to Google Cloud IoT Core via MQTT, using a JWT for device
-authentication. After connecting, by default the device publishes 100 messages
-to the device's MQTT topic at a rate of one per second, and then exits.
-Before you run the sample, you must follow the instructions in the README
-for this sample.
+"""
+Python sample for connecting to Google Cloud IoT Core via MQTT, using JWT.
+Sends dummy location/time data every second.
 """
 import argparse
 import datetime
+import json
 import logging
 import random
 import time
@@ -53,11 +36,6 @@ def parse_command_line_args():
         "--cloud_region", default="us-central1", help="GCP cloud region"
     )
     parser.add_argument(
-        "--data",
-        default="Hello there",
-        help="The telemetry data sent on behalf of a device",
-    )
-    parser.add_argument(
         "--device_id",
         required=True,
         help="Cloud IoT Core device id"
@@ -67,21 +45,6 @@ def parse_command_line_args():
         default=20,
         type=int,
         help="Expiration time, in minutes, for JWT tokens.",
-    )
-    parser.add_argument(
-        "--listen_dur",
-        default=60,
-        type=int,
-        help="Duration (seconds) to listen for configuration messages",
-    )
-    parser.add_argument(
-        "--message_type",
-        choices=("event", "state"),
-        default="event",
-        help=(
-            "Indicates whether the message to be published is a "
-            "telemetry event or a device state message."
-        ),
     )
     parser.add_argument(
         "--mqtt_bridge_hostname",
@@ -124,13 +87,12 @@ def main():
     """Entry point."""
     args = parse_command_line_args()
 
-    # Publish to the events or state topic based on the flag.
-    sub_topic = "events" if args.message_type == "event" else "state"
-
-    mqtt_topic = f"/devices/{args.device_id}/{sub_topic}"
-
+    # Topic where location events are published.
+    mqtt_topic = f"/devices/{args.device_id}/events/location"
+    # Parameters for JWT refresh.
     jwt_iat = datetime.datetime.now(tz=datetime.timezone.utc)
     jwt_exp_mins = args.jwt_expires_minutes
+    # Cloud IoT client.
     client = CloudIOTClient(
         args.project_id,
         args.cloud_region,
@@ -142,12 +104,10 @@ def main():
         args.mqtt_bridge_hostname,
         args.mqtt_bridge_port,
     )
-
     # Publish num_messages messages to the MQTT bridge once per second.
     for i in range(1, args.num_messages + 1):
         # Process network events.
         client.loop()
-
         # Wait if backoff is required.
         if client.should_backoff:
             # If backoff time is too large, give up.
@@ -164,9 +124,16 @@ def main():
             client.minimum_backoff_time *= 2
             client.connect(args.mqtt_bridge_hostname, args.mqtt_bridge_port)
 
-        payload = f"{args.registry_id}/{args.device_id}-payload-{i}"
+        # Create location record.
+        location = {
+            'x': random.random(),
+            'y': random.random(),
+            'z': random.random(),
+            't': int(time.time()*1000)
+        }
+        payload = json.dumps(location)
         print(f"Publishing message {i}/{args.num_messages}: '{payload}'")
-
+        # Refresh JWT if it is too old.
         seconds_since_issue = (
             datetime.datetime.now(tz=datetime.timezone.utc) - jwt_iat
         ).seconds
@@ -190,11 +157,8 @@ def main():
         # delivery. Cloud IoT Core also supports qos=0 for at most once
         # delivery.
         client.publish(mqtt_topic, payload, qos=1)
-
-        # Send events every second. State should not be updated as often
-        for _ in range(0, 60):
-            time.sleep(1)
-            client.loop()
+        # Send events every second.
+        time.sleep(1)
 
     print("Finished.")
 
