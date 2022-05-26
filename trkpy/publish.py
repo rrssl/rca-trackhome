@@ -45,13 +45,14 @@ def create_jwt(project_id, private_key_file, algorithm):
     return jwt.encode(token, private_key, algorithm=algorithm)
 
 
-def error_str(rc):
+def error_str(rc):  # pylint: disable=invalid-name
     """Convert a Paho error to a human readable string."""
     return f"{rc}: {mqtt.error_string(rc)}"
 
 
 class CloudIOTClient(mqtt.Client):
     """MQTT client adapted for use with Cloud IoT."""
+    # pylint: disable=arguments-differ,invalid-overridden-method
     # The maximum backoff time before giving up, in seconds.
     maximum_backoff_time = 32
 
