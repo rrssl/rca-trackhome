@@ -69,9 +69,9 @@ def get_anchors_config(master: px.PozyxSerial, remote_id: int = None):
 
     """
     list_size = px.SingleRegister()
-    master.getNumberOfAnchors(list_size, remote_id)
-    device_list = px.DeviceList(list_size=list_size.value)
-    master.getPositioningAnchorIds(device_list, remote_id)
+    master.getDeviceListSize(list_size, remote_id)
+    device_list = px.DeviceList(list_size=list_size[0])
+    master.getDeviceIds(device_list, remote_id)
     anchors = {}
     for nid in device_list:
         coords = px.Coordinates()
@@ -88,9 +88,9 @@ def set_anchors_manual(
 ):
     """Adds the manually measured anchors to the Pozyx's device list."""
     status = master.clearDevices(remote_id)
-    for name, xyz in anchors.items():
+    for id_hex, xyz in anchors.items():
         # Second argument of DeviceCoordinates is 1 for 'anchor'.
-        coords = px.DeviceCoordinates(int(name), 1, px.Coordinates(*xyz))
+        coords = px.DeviceCoordinates(int(id_hex, 16), 1, px.Coordinates(*xyz))
         status &= master.addDevice(coords, remote_id)
     if len(anchors) > 4:
         status &= master.setSelectionOfAnchors(
@@ -99,9 +99,10 @@ def set_anchors_manual(
             remote_id=remote_id
         )
     if save_to_flash:
-        master.saveAnchorIds(remote_id)
-        master.saveRegisters(
-            [px.PozyxRegisters.POSITIONING_NUMBER_OF_ANCHORS],
-            remote_id=remote_id
-        )
+        master.saveNetwork(remote_id)
+        # master.saveAnchorIds(remote_id)
+        # master.saveRegisters(
+        #     [px.PozyxRegisters.POSITIONING_NUMBER_OF_ANCHORS],
+        #     remote_id=remote_id
+        # )
     return status == px.POZYX_SUCCESS

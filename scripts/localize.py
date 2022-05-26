@@ -2,15 +2,13 @@
 Script demonstrating how to use the Pozyx system to localize a device.
 """
 import json
-import os
+import logging
 import time
 from argparse import ArgumentParser
-from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
-from pprint import pprint
 
-import numpy as np
+# import numpy as np
 import pypozyx as px
 import yaml
 
@@ -18,35 +16,80 @@ from trkpy import track
 
 
 class Tracker:
-    def __init__(self, interface):
-        self.interface = interface
-        self.pos_dim = None
-        self.pos_algo = None
-        self.remote_ids = []
+    """High-level manager of the real-time location system."""
 
-        # Make sure the tracker has no control over the LEDs.
-        led_config = 0x0
-        self.interface.setLedConfig(led_config)
-        for remote_id in self.remote_ids:
-            self.interface.setLedConfig(led_config, remote_id)
+    def __init__(
+        self,
+        profile_path: str,
+        pos_dim: int,
+        pos_algo: int,
+        timeout: float
+    ):
+        self.pos_dim = pos_dim
+        self.pos_algo = pos_algo
+        self.wait_time = .5  # wait time between tags
+
+        # Init the log.
+        logging.basicConfig(level=logging.DEBUG)
+        # Init the devices.
+        with open(profile_path) as handle:
+            profile = json.load(handle)
+        interface = track.init_master(timeout=timeout)
+        tags = [t if t is None else int(t, 16) for t in profile['tags']]
+        for device_id in tags:
+            # interface.printDeviceInfo(device_id)
+            # Configure anchors.
+            success = track.set_anchors_manual(
+                interface, profile['anchors'],
+                save_to_flash=False, remote_id=device_id
+            )
+            if success:
+                anchors = track.get_anchors_config(interface, device_id)
+                for anchor, coords in anchors.items():
+                    logging.info(f"Anchor {anchor}: {coords}")
+            else:
+                logging.error(track.get_latest_error(
+                    interface, "Configuration", device_id
+                ))
+            # Make sure the tags have no control over the LEDs.
+            led_config = 0x0
+            interface.setLedConfig(led_config, device_id)
+
+        self.interface = interface
+        self.tags = tags
 
     def localize(self, device_id: int = None):
         """Localize the device."""
-        self.interface.setLed(1, True, device_id)
+        t_now = time.time()
         pos = track.do_positioning(
             self.interface, self.pos_dim, self.pos_algo, device_id
         )
         if pos:
-            t_now = time.time()
-            remote_name = track.get_network_name(device_id)
-            print(f"POS [{remote_name}] (t={t_now}s): {pos}")
+            res = {'success': True, 't': t_now, 'pos': pos}
         else:
-            print(
-                track.get_latest_error(
-                    self.interface, "Positioning", device_id
-                )
+            error_msg = track.get_latest_error(
+                self.interface, "Positioning", device_id
             )
-        self.interface.setLed(1, False, device_id)
+            res = {'success': False, 't': t_now, 'err': error_msg}
+        return res
+
+    def loop(self):
+        """Loop through all the devices to localize them."""
+        responses = {}
+        for device_id in self.tags:
+            self.interface.setLed(1, True, device_id)
+            time.sleep(self.wait_time)
+            responses[device_id] = self.localize(device_id)
+            self.interface.setLed(1, False, device_id)
+        for device_id, res in responses.items():
+            name = track.get_network_name(device_id)
+            local_t = datetime.fromtimestamp(
+                res['t']
+            ).strftime('%Y-%m-%d %H:%M:%S')
+            if res['success']:
+                logging.info(f"POS[{name}]({local_t}): {res['pos']}")
+            else:
+                logging.error(f"ERR[{name}]({local_t}): {res['err']}")
 
 
 def get_arg_parser():
@@ -65,8 +108,8 @@ def get_arg_parser():
     parser.add_argument(
         '--interval',
         type=float,
-        default=.1,
-        help="Interval in seconds between measurements (default 0.1s)"
+        default=1,
+        help="Interval in seconds between measurements (default 1s)"
     )
     parser.add_argument(
         '--save',
@@ -82,8 +125,8 @@ def get_config():
     with open(aconf.config, 'r') as handle:
         fconf = yaml.safe_load(handle)
     # Override file config with "--section.option val" command line arguments.
-    it = iter(fconf_override)
-    for name, val in zip(it, it):
+    args = iter(fconf_override)
+    for name, val in zip(args, args):
         section, option = name[2:].split('.')
         fconf[section][option] = val
     # Preprocess paths to make life easier.
@@ -94,64 +137,37 @@ def get_config():
             if "/" in value or value in (".", "..", "~"):  # UNIX path
                 section[key] = Path(value)
     # Merge configs.
-    conf = vars(aconf) | fconf['global'] | fconf['tracking']
+    conf = vars(aconf) | fconf
     return conf
 
 
 def main():
     """Entry point"""
     # Parse arguments and load configuration and profile.
-    parser = get_arg_parser()
-    args = parser.parse_args()
-    config = ConfigParser()
-    config.read(args.config)
-    data_path = config['global']['data_path']
-    profile_path = os.path.join(data_path, f"{args.profile}.json")
-    with open(profile_path) as handle:
-        profile = json.load(handle)
-    # Initialize tags.
-    master = track.init_master(timeout=1)
-    remote_id = profile['remote_id']
-    if remote_id is None:
-        master.printDeviceInfo(remote_id)
-    else:
-        for device_id in [None, remote_id]:
-            master.printDeviceInfo(device_id)
-    # Configure anchors.
-    success = track.set_anchors_manual(
-        master, profile['anchors'], remote_id=remote_id
-    )
-    if success:
-        pprint(track.get_anchors_config(master, remote_id))
-    else:
-        print(track.get_latest_error(master, "Configuration", remote_id))
-    # Start positioning loop.
-    pos_dim = getattr(px.PozyxConstants, config['tracking']['pos_dim'])
-    pos_algo = getattr(px.PozyxConstants, config['tracking']['pos_algo'])
-    remote_name = track.get_network_name(remote_id)
-    if args.save:
-        pos_data = []
-    t_start = time.time()
+    conf = get_config()
+    data_dir = conf['global']['data_dir']
+    profile_path = data_dir / conf['profile']
+    pos_dim = getattr(px.PozyxConstants, conf['tracking']['pos_dim'])
+    pos_algo = getattr(px.PozyxConstants, conf['tracking']['pos_algo'])
+    timeout = 1
+    tracker = Tracker(profile_path, pos_dim, pos_algo, timeout)
+    pos_period = conf['interval']
     try:
         while True:
-            t_now = time.time() - t_start
-            pos = track.do_positioning(master, pos_dim, pos_algo, remote_id)
-            if pos:
-                print(f"POS [{remote_name}] (t={t_now}s): {pos}")
-                if args.save:
-                    pos_data.append((t_now,) + pos)
-            else:
-                print(track.get_latest_error(master, "Positioning", remote_id))
-            time.sleep(args.interval)
+            t_start = time.time()
+            tracker.loop()
+            t_elapsed = time.time() - t_start
+            time.sleep(pos_period - t_elapsed)
     except KeyboardInterrupt:
-        if args.save:
-            pos_data = np.single(pos_data)
-            file_name = (
-                f"recording{datetime.now().strftime('_%Y%m%d%H%M%S')}-"
-                f"{args.profile}.npy"
-            )
-            file_path = os.path.join(data_path, file_name)
-            np.save(file_path, pos_data)
+        logging.info("Exiting.")
+        # if args.save:
+        #     pos_data = np.single(pos_data)
+        #     file_name = (
+        #         f"recording{datetime.now().strftime('_%Y%m%d%H%M%S')}-"
+        #         f"{args.profile}.npy"
+        #     )
+        #     file_path = data_dir / file_name
+        #     np.save(file_path, pos_data)
 
 
 if __name__ == "__main__":
