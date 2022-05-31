@@ -37,7 +37,6 @@ class Tracker:
         interface = track.init_master(timeout=timeout)
         tags = [t if t is None else int(t, 16) for t in profile['tags']]
         for device_id in tags:
-            # interface.printDeviceInfo(device_id)
             # Configure anchors.
             success = track.set_anchors_manual(
                 interface, profile['anchors'],
@@ -46,7 +45,10 @@ class Tracker:
             if success:
                 anchors = track.get_anchors_config(interface, device_id)
                 for anchor, coords in anchors.items():
-                    logging.info(f"Anchor {anchor}: {coords}")
+                    logging.info(
+                        f"Anchor {anchor} configured on tag "
+                        f"{track.get_network_name(device_id)}: {coords}"
+                    )
             else:
                 logging.error(track.get_latest_error(
                     interface, "Configuration", device_id
@@ -57,6 +59,30 @@ class Tracker:
 
         self.interface = interface
         self.tags = tags
+        self.anchors = [int(a, 16) for a in profile['anchors']]
+
+    def check(self):
+        """Check that all devices are currently connected."""
+        for tag_id in self.tags:
+            name = track.get_network_name(tag_id)
+            details = track.get_device_details(self.interface, tag_id)
+            if details is not None:
+                test_whoami = details.who_am_i == 0x43
+                test_type = details.selftest == 0b111111
+                if test_whoami and test_type:
+                    logging.info(f"TAG {name} STATUS GOOD")
+                    continue
+            logging.warning(f"TAG {name} STATUS BAD")
+        for anchor_id in self.anchors:
+            name = track.get_network_name(anchor_id)
+            details = track.get_device_details(self.interface, anchor_id)
+            if details is not None:
+                test_whoami = details.who_am_i == 0x43
+                test_type = details.selftest == 0b110000
+                if test_whoami and test_type:
+                    logging.info(f"ANCHOR {name} STATUS GOOD")
+                    continue
+            logging.warning(f"ANCHOR {name} STATUS BAD")
 
     def localize(self, device_id: int = None):
         """Localize the device."""
@@ -152,9 +178,15 @@ def main():
     timeout = 1
     tracker = Tracker(profile_path, pos_dim, pos_algo, timeout)
     pos_period = conf['interval']
+    check_every_n_loops = 12
+    loop_cnt = 0
+    tracker.check()
     try:
         while True:
             t_start = time.time()
+            if loop_cnt % check_every_n_loops == 0:
+                tracker.check()
+            loop_cnt += 1
             tracker.loop()
             t_elapsed = time.time() - t_start
             time.sleep(pos_period - t_elapsed)

@@ -2,6 +2,7 @@
 Functions to initialize and use the Pozyx tracker.
 """
 import pypozyx as px
+from pypozyx.structures.device_information import DeviceDetails
 
 
 def init_master(timeout: float = .1):
@@ -78,6 +79,15 @@ def get_anchors_config(master: px.PozyxSerial, remote_id: int = None):
         master.getDeviceCoordinates(nid, coords, remote_id)
         anchors[get_network_name(nid)] = (coords.x, coords.y, coords.z)
     return anchors
+
+
+def get_device_details(master: px.PozyxSerial, remote_id: int = None):
+    """Queries a device for details."""
+    details = DeviceDetails()
+    status = master.getDeviceDetails(details, remote_id)
+    if status == px.POZYX_SUCCESS:
+        return details
+    return None
 
 
 def set_anchors_manual(
