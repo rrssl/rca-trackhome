@@ -31,35 +31,18 @@ class Tracker:
 
         # Init the log.
         logging.basicConfig(level=logging.DEBUG)
+        # Init the interface.
+        self.interface = track.init_master(timeout=timeout)
         # Init the devices.
         with open(profile_path) as handle:
             profile = json.load(handle)
-        interface = track.init_master(timeout=timeout)
-        tags = [t if t is None else int(t, 16) for t in profile['tags']]
-        for device_id in tags:
-            # Configure anchors.
-            success = track.set_anchors_manual(
-                interface, profile['anchors'],
-                save_to_flash=False, remote_id=device_id
-            )
-            if success:
-                anchors = track.get_anchors_config(interface, device_id)
-                for anchor, coords in anchors.items():
-                    logging.info(
-                        f"Anchor {anchor} configured on tag "
-                        f"{track.get_network_name(device_id)}: {coords}"
-                    )
-            else:
-                logging.error(track.get_latest_error(
-                    interface, "Configuration", device_id
-                ))
-            # Make sure the tags have no control over the LEDs.
-            led_config = 0x0
-            interface.setLedConfig(led_config, device_id)
-
-        self.interface = interface
-        self.tags = tags
-        self.anchors = [int(a, 16) for a in profile['anchors']]
+        self.tags = [t if t is None else int(t, 16) for t in profile['tags']]
+        self.anchors = {
+            int(a, 16): tuple(xyz) for a, xyz in profile['anchors'].items()
+        }
+        for tag in self.tags:
+            self.configure_tag(tag)
+        self._tags_to_reconfigure = set()
 
     def check(self):
         """Check that all devices are currently connected."""
@@ -72,6 +55,7 @@ class Tracker:
                 if test_whoami and test_type:
                     logging.info(f"TAG {name} STATUS GOOD")
                     continue
+            self._tags_to_reconfigure.add(tag_id)
             logging.warning(f"TAG {name} STATUS BAD")
         for anchor_id in self.anchors:
             name = track.get_network_name(anchor_id)
@@ -83,6 +67,24 @@ class Tracker:
                     logging.info(f"ANCHOR {name} STATUS GOOD")
                     continue
             logging.warning(f"ANCHOR {name} STATUS BAD")
+
+    def configure_tag(self, tag_id: int):
+        # Configure anchors.
+        tag_anchors = track.get_anchors_config(self.interface, tag_id)
+        if tag_anchors != self.anchors:
+            success = track.set_anchors_manual(
+                self.interface, self.anchors,
+                save_to_flash=True, remote_id=tag_id
+            )
+            if success:
+                self.log_anchor_config(tag_id)
+            else:
+                logging.error(track.get_latest_error(
+                    self.interface, "Configuration", tag_id
+                ))
+        # Make sure the tags have no control over the LEDs.
+        led_config = 0x0
+        self.interface.setLedConfig(led_config, tag_id)
 
     def localize(self, device_id: int = None):
         """Localize the device."""
@@ -102,20 +104,34 @@ class Tracker:
     def loop(self):
         """Loop through all the devices to localize them."""
         responses = {}
-        for device_id in self.tags:
-            self.interface.setLed(1, True, device_id)
+        for tag_id in self.tags:
+            self.interface.setLed(1, True, tag_id)
             time.sleep(self.wait_time)
-            responses[device_id] = self.localize(device_id)
-            self.interface.setLed(1, False, device_id)
-        for device_id, res in responses.items():
-            name = track.get_network_name(device_id)
+            responses[tag_id] = self.localize(tag_id)
+            self.interface.setLed(1, False, tag_id)
+        for tag_id, res in responses.items():
+            name = track.get_network_name(tag_id)
             local_t = datetime.fromtimestamp(
                 res['t']
             ).strftime('%Y-%m-%d %H:%M:%S')
             if res['success']:
-                logging.info(f"POS[{name}]({local_t}): {res['pos']}")
+                if tag_id in self._tags_to_reconfigure:
+                    self.configure_tag(tag_id)
+                    self._tags_to_reconfigure.remove(tag_id)
+                else:
+                    logging.info(f"POS[{name}]({local_t}): {res['pos']}")
             else:
+                self._tags_to_reconfigure.add(tag_id)
                 logging.error(f"ERR[{name}]({local_t}): {res['err']}")
+
+    def log_anchor_config(self, tag_id: int):
+        anchors = track.get_anchors_config(self.interface, tag_id)
+        tag_str = track.get_network_name(tag_id)
+        for anchor, coords in anchors.items():
+            logging.info(
+                f"Anchor {track.get_network_name(anchor)} configured on tag "
+                f"{tag_str}: {coords}"
+            )
 
 
 def get_arg_parser():
@@ -180,12 +196,13 @@ def main():
     pos_period = conf['interval']
     check_every_n_loops = 12
     loop_cnt = 0
-    tracker.check()
     try:
         while True:
             t_start = time.time()
             if loop_cnt % check_every_n_loops == 0:
                 tracker.check()
+                # for tag in tracker.tags:
+                #     tracker.log_anchor_config(tag)
             loop_cnt += 1
             tracker.loop()
             t_elapsed = time.time() - t_start

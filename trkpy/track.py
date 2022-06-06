@@ -61,7 +61,10 @@ def get_latest_error(
     return error_message
 
 
-def get_anchors_config(master: px.PozyxSerial, remote_id: int = None):
+def get_anchors_config(
+    master: px.PozyxSerial,
+    remote_id: int = None
+) -> dict[int, tuple[float, float, float]]:
     """Return the tag's anchor configuration.
 
     It doesn't mean that the anchors are actually on and working! It only
@@ -77,7 +80,7 @@ def get_anchors_config(master: px.PozyxSerial, remote_id: int = None):
     for nid in device_list:
         coords = px.Coordinates()
         master.getDeviceCoordinates(nid, coords, remote_id)
-        anchors[get_network_name(nid)] = (coords.x, coords.y, coords.z)
+        anchors[nid] = (coords.x, coords.y, coords.z)
     return anchors
 
 
@@ -92,15 +95,15 @@ def get_device_details(master: px.PozyxSerial, remote_id: int = None):
 
 def set_anchors_manual(
     master: px.PozyxSerial,
-    anchors: dict[str, tuple[float, float, float]],
+    anchors: dict[int, tuple[float, float, float]],
     save_to_flash: bool = False,
     remote_id: int = None
 ):
     """Adds the manually measured anchors to the Pozyx's device list."""
     status = master.clearDevices(remote_id)
-    for id_hex, xyz in anchors.items():
+    for anchor_id, xyz in anchors.items():
         # Second argument of DeviceCoordinates is 1 for 'anchor'.
-        coords = px.DeviceCoordinates(int(id_hex, 16), 1, px.Coordinates(*xyz))
+        coords = px.DeviceCoordinates(anchor_id, 1, px.Coordinates(*xyz))
         status &= master.addDevice(coords, remote_id)
     if len(anchors) > 4:
         status &= master.setSelectionOfAnchors(
