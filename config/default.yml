@@ -2,7 +2,7 @@ global:
   data_dir: .
   out_dir: .
 
-cloud:
+publish:
   algorithm: RS256
   ca_certs: auth/google_CA_roots.pem
   cloud_region: europe-west1

@@ -7,6 +7,8 @@ import time
 import jwt
 import paho.mqtt.client as mqtt
 
+logger = logging.getLogger(__name__)
+
 
 def create_jwt(project_id, private_key_file, algorithm):
     """Creates a JWT (https://jwt.io) to establish an MQTT connection.
@@ -39,7 +41,7 @@ def create_jwt(project_id, private_key_file, algorithm):
     with open(private_key_file, 'r', encoding='ascii') as handle:
         private_key = handle.read()
 
-    logging.debug(
+    logger.debug(
         f"Creating JWT using {algorithm} "
         f"from private key file {private_key_file}"
     )
@@ -112,22 +114,22 @@ class CloudIOTClient(mqtt.Client):
 
     def on_connect(self, unused_client, unused_userdata, unused_flags, rc):
         """Callback for when a device connects."""
-        logging.debug(f"[on_connect] {mqtt.connack_string(rc)}")
+        logger.debug(mqtt.connack_string(rc))
         self.connected = True
 
     def on_disconnect(self, unused_client, unused_userdata, rc):
         """Paho callback for when a device disconnects."""
-        logging.debug(f"[on_disconnect] {mqtt.error_string(rc)}")
+        logger.debug(mqtt.error_string(rc))
         self.connected = False
 
     def on_publish(self, unused_client, unused_userdata, unused_mid):
         """Paho callback when a message is sent to the broker."""
-        logging.debug("[on_publish] Successfully published.")
+        logger.debug("Successfully published.")
 
     def on_message(self, unused_client, unused_userdata, message):
         """Callback when the device receives a message on a subscription."""
         payload = str(message.payload.decode('utf-8'))
-        logging.debug(
+        logger.debug(
             f"Received message '{payload}' "
             f"on topic '{message.topic}' with Qos {message.qos}"
         )
@@ -166,6 +168,7 @@ class CloudHandler(logging.Handler):
             mqtt_bridge_hostname,
             mqtt_bridge_port,
         )
+        logger.debug("Cloud logger initialized.")
         self.client.loop()
 
     def emit(self, record: logging.LogRecord):
@@ -184,6 +187,7 @@ class CloudHandler(logging.Handler):
             client.disconnect()
             self.jwt_iat = time.time()
             client.reinitialise()
+            client.loop()
         # Publish record to the MQTT topic. qos=1 means at least once delivery.
         # Cloud IoT Core also supports qos=0 for at most once delivery.
         if record.levelno == logging.INFO:

@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import time
+from pathlib import Path
 
 import yaml
 
@@ -48,15 +49,28 @@ def get_config():
 def main():
     """Entry point."""
     conf = get_config()
+    out_dir = Path(conf['global']['out_dir'])
+    name = Path(__file__).with_suffix("").name
+    log_path = out_dir / f"{name}.log"
 
-    logging.basicConfig(level=logging.DEBUG)
-    # Create logger.
-    logger = logging.getLogger("cloud")
-    logger.setLevel(logging.DEBUG)
-    cloud_handler = CloudHandler(**conf['cloud'])
-    logger.addHandler(cloud_handler)
+    # Create loggers.
+    # - root logger: logs to a local file.
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    file_handler = logging.FileHandler(log_path, encoding='ascii')
+    file_formatter = logging.Formatter(
+        fmt='|{asctime}|{levelname}|{name}|{funcName}|{message}',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        style='{'
+    )
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
+    # - cloud logger.
+    cloud_logger = logging.getLogger("cloud")
+    cloud_handler = CloudHandler(**conf['publish'])
+    cloud_logger.addHandler(cloud_handler)
     # Publish num_messages messages to the MQTT bridge once per second.
-    logger.debug("Starting")
+    cloud_logger.debug("Starting.")
     for _ in range(conf['num_messages']):
         # Create location record.
         location = {
@@ -67,10 +81,10 @@ def main():
             't': int(time.time()*1000)
         }
         payload = json.dumps(location)
-        logger.info(payload)
+        cloud_logger.info(payload)
         # Send events every second.
         time.sleep(1)
-    logger.debug("Finished.")
+    cloud_logger.debug("Finished.")
     cloud_handler.client.disconnect()
 
 
