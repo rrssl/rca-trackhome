@@ -14,6 +14,11 @@ publish:
   project_id: home-use-pattern-study
   registry_id: rtls-tags
 
+pull:
+  cloud_region: europe-west1
+  project_id: home-use-pattern-study
+  service_account_json: auth/rtls_log_manager_key.json
+
 tracking:
   pos_algo: POSITIONING_ALGORITHM_UWB_ONLY
   pos_dim: DIMENSION_3D
