@@ -20,5 +20,7 @@ pull:
   service_account_json: auth/rtls_log_manager_key.json
 
 tracking:
+  check_period: 12
   pos_algo: POSITIONING_ALGORITHM_UWB_ONLY
   pos_dim: DIMENSION_3D
+  timeout: 1

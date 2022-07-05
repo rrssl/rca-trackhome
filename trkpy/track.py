@@ -1,6 +1,7 @@
 """
 Functions to initialize and use the Pozyx tracker.
 """
+from typing import Union
 import pypozyx as px
 from pypozyx.structures.device_information import DeviceDetails
 
@@ -16,11 +17,15 @@ def init_master(timeout: float = .1):
 
 def do_positioning(
     master: px.PozyxSerial,
-    dimension: int,
-    algorithm: int,
+    dimension: Union[str, int],
+    algorithm: Union[str, int],
     remote_id: int = None
 ):
     """Perform positioning of the tag."""
+    if isinstance(dimension, str):
+        dimension = getattr(px.PozyxConstants, dimension)
+    if isinstance(algorithm, str):
+        algorithm = getattr(px.PozyxConstants, algorithm)
     pos = px.Coordinates()
     status = master.doPositioning(
         pos, dimension=dimension, algorithm=algorithm, remote_id=remote_id
