@@ -1,46 +1,13 @@
-"""
-Pulling messages from Google Cloud Pub/Sub topics.
-"""
-import argparse
+"""Collects tracking logs from the cloud"""
 import json
-import time
 from concurrent import futures
 from csv import DictWriter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from operator import itemgetter, methodcaller
 from pathlib import Path
 
-import yaml
 from google.cloud.pubsub_v1 import SubscriberClient
 from google.cloud.pubsub_v1.subscriber.message import Message
-
-
-def get_arg_parser():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description=__doc__
-    )
-    parser.add_argument(
-        "--config",
-        metavar="FILE",
-        required=True,
-        help="Path to the YAML config file."
-    )
-    parser.add_argument(
-        "--timeout",
-        default=3,
-        type=int,
-        help="Timeout for requests.",
-    )
-
-    return parser
-
-
-def get_config():
-    aconf = get_arg_parser().parse_args()
-    with open(aconf.config, 'r') as stream:
-        fconf = yaml.safe_load(stream)
-    return vars(aconf) | fconf
 
 
 class CloudIOTCollector:
@@ -151,28 +118,3 @@ class CloudIOTCollector:
                 if write_header:
                     writer.writeheader()
                 writer.writerows(rows)
-
-
-def main():
-    """Entry point."""
-    conf = get_config()
-    out_dir = Path(conf['global']['out_dir'])
-    subscriptions = ['location', 'debug']
-    types = ['json', 'str']
-    collector = CloudIOTCollector(
-        subscriptions,
-        types,
-        flush_dir=out_dir,
-        project_id=conf['pull']['project_id'],
-        service_account_json=conf['pull']['service_account_json'],
-        timeout=conf['timeout']
-    )
-    delta = timedelta(minutes=5)
-    for _ in range(2):
-        collector.collect()
-        collector.flush(older_than=datetime.now(timezone.utc)-delta)
-        time.sleep(3)
-
-
-if __name__ == "__main__":
-    main()
