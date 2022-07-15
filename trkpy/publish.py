@@ -84,7 +84,12 @@ class CloudIOTClient(mqtt.Client):
         self._setup()
 
     def reinitialise(self):
-        super().reinitialise(client_id=self.client_id)
+        # Can't call super().reinitialise because it ignores custom __init__
+        # so this mimicks super().reinitialise
+        self._reset_sockets()
+
+        super().__init__(client_id=self.client_id)
+        self.connected = False
         self._setup()
 
     def _setup(self):
@@ -182,7 +187,9 @@ class CloudHandler(logging.Handler):
         # Refresh JWT if it is too old.
         seconds_since_issue = time.time() - self.jwt_iat
         if seconds_since_issue > 60 * self.jwt_expires_mins:
-            print(f"Refreshing token after {seconds_since_issue/60} min")
+            logger.debug(
+                f"Refreshing token after {seconds_since_issue/60} min"
+            )
             # self.client.loop()
             client.disconnect()
             self.jwt_iat = time.time()

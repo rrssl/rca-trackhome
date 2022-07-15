@@ -153,11 +153,6 @@ def get_arg_parser():
         default=1,
         help="Interval in seconds between measurements (default 1s)"
     )
-    parser.add_argument(
-        '--save',
-        action='store_true',
-        help="Use this flag to save the measurements"
-    )
     return parser
 
 
