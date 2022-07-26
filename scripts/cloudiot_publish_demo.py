@@ -49,6 +49,10 @@ def get_config():
 def main():
     """Entry point."""
     conf = get_config()
+    auth_dir = Path(conf['global']['auth_dir'])
+    conf['publish']['ca_certs'] = auth_dir / conf['publish']['ca_certs']
+    conf['publish']['private_key_file'] = (
+        auth_dir / conf['publish']['private_key_file'])
     out_dir = Path(conf['global']['out_dir'])
     name = Path(__file__).with_suffix("").name
     log_path = out_dir / f"{name}.log"

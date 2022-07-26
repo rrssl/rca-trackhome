@@ -54,6 +54,10 @@ def get_config():
 def main():
     """Entry point."""
     conf = get_config()
+    auth_dir = Path(conf['global']['auth_dir'])
+    conf['pull']['service_account_json'] = (
+        auth_dir / conf['pull']['service_account_json']
+    )
     out_dir = Path(conf['global']['out_dir'])
     subscriptions = ['location', 'error', 'debug']
     types = ['json', 'str', 'str']

@@ -182,6 +182,10 @@ def main():
     """Entry point"""
     # Parse arguments and load configuration.
     conf = get_config()
+    auth_dir = Path(conf['global']['auth_dir'])
+    conf['publish']['ca_certs'] = auth_dir / conf['publish']['ca_certs']
+    conf['publish']['private_key_file'] = (
+        auth_dir / conf['publish']['private_key_file'])
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
     pos_dim = conf['tracking']['pos_dim']

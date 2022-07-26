@@ -1,23 +1,24 @@
 global:
+  auth_dir: .
   data_dir: .
   out_dir: .
 
 publish:
   algorithm: RS256
-  ca_certs: auth/google_CA_roots.pem
+  ca_certs: google_CA_roots.pem
   cloud_region: europe-west1
   device_id:
   jwt_expires_minutes: 15
   mqtt_bridge_hostname: mqtt.googleapis.com
   mqtt_bridge_port: 8883
-  private_key_file: auth/rsa_gcloud_private.pem
+  private_key_file: rsa_gcloud_private.pem
   project_id: home-use-pattern-study
   registry_id: rtls-tags
 
 pull:
   cloud_region: europe-west1
   project_id: home-use-pattern-study
-  service_account_json: auth/rtls_log_manager_key.json
+  service_account_json: rtls_log_manager_key.json
 
 tracking:
   check_period: 12
