@@ -145,34 +145,15 @@ class CloudHandler(logging.Handler):
 
     def __init__(
         self,
-        project_id: str,
-        cloud_region: str,
-        registry_id: str,
-        device_id: str,
-        private_key_file: str,
-        algorithm: str,
-        ca_certs: str,
-        mqtt_bridge_hostname: str,
-        mqtt_bridge_port: int,
+        client: CloudIOTClient,
         jwt_expires_minutes: int,
         level=logging.NOTSET
     ):
         super().__init__(level)
         self.jwt_iat = time.time()
         self.jwt_expires_mins = jwt_expires_minutes
-        # Topic where location events are published.
         # Cloud IoT client.
-        self.client = CloudIOTClient(
-            project_id,
-            cloud_region,
-            registry_id,
-            device_id,
-            private_key_file,
-            algorithm,
-            ca_certs,
-            mqtt_bridge_hostname,
-            mqtt_bridge_port,
-        )
+        self.client = client
         logger.debug("Cloud logger initialized.")
         self.client.loop()
 

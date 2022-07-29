@@ -49,9 +49,9 @@ def main():
         conf['pull']['service_account_json']
     )
     device_path = client.device_path(
-        conf['publish']['project_id'],
-        conf['publish']['cloud_region'],
-        conf['publish']['registry_id'],
+        conf['cloud']['project_id'],
+        conf['cloud']['cloud_region'],
+        conf['cloud']['registry_id'],
         conf['device']
     )
     command = conf['command'].encode('utf-8')

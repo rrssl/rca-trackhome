@@ -65,7 +65,7 @@ def main():
         subscriptions,
         types,
         flush_dir=out_dir,
-        project_id=conf['pull']['project_id'],
+        project_id=conf['cloud']['project_id'],
         service_account_json=conf['pull']['service_account_json'],
         timeout=conf['timeout']
     )

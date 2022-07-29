@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from trkpy import track
-from trkpy.publish import CloudHandler
+from trkpy.publish import CloudHandler, CloudIOTClient
 
 
 class Tracker:
@@ -20,11 +20,14 @@ class Tracker:
         logger: logging.Logger,
         pos_dim: int,
         pos_algo: int,
-        timeout: float
+        check_period: int,
+        timeout: float,
     ):
         self.logger = logger
         self.pos_dim = pos_dim
         self.pos_algo = pos_algo
+        self.check_period = check_period
+        self.loop_cnt = 0
         self.wait_time = .5  # wait time between tags
 
         # Init the interface.
@@ -99,6 +102,13 @@ class Tracker:
 
     def loop(self):
         """Loop through all the devices to localize them."""
+        # Potentially run a check first.
+        if self.check_period and self.loop_cnt % self.check_period == 0:
+            self.check()
+            # for tag in self.tags:
+            #     self.log_anchor_config(tag)
+        self.loop_cnt += 1
+        # Run through all the registered tags.
         responses = {}
         for tag_id in self.tags:
             self.interface.setLed(1, True, tag_id)
@@ -175,28 +185,19 @@ def get_config():
                 section[key] = Path(value)
     # Merge configs.
     conf = vars(aconf) | fconf
+    # Process some specific paths.
+    auth_dir = conf['global']['auth_dir']
+    conf['cloud']['ca_certs'] = auth_dir / conf['cloud']['ca_certs']
+    conf['cloud']['private_key_file'] = (
+        auth_dir / conf['cloud']['private_key_file']
+    )
     return conf
 
 
-def main():
-    """Entry point"""
-    # Parse arguments and load configuration.
-    conf = get_config()
-    auth_dir = Path(conf['global']['auth_dir'])
-    conf['publish']['ca_certs'] = auth_dir / conf['publish']['ca_certs']
-    conf['publish']['private_key_file'] = (
-        auth_dir / conf['publish']['private_key_file'])
-    data_dir = conf['global']['data_dir']
-    profile_path = data_dir / conf['profile']
-    pos_dim = conf['tracking']['pos_dim']
-    pos_algo = conf['tracking']['pos_algo']
-    pos_period = conf['interval']
-    timeout = conf['tracking']['timeout']
-    check_every_n_loops = conf['tracking']['check_period']
-    name = Path(__file__).with_suffix("").name
+def init_logger(client: CloudIOTClient, conf: dict):
     out_dir = conf['global']['out_dir']
+    name = Path(__file__).with_suffix("").name
     log_path = out_dir / f"{name}.log"
-    # Create loggers.
     # - root logger: logs to a local file.
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -210,27 +211,38 @@ def main():
     root_logger.addHandler(file_handler)
     # - cloud logger.
     cloud_logger = logging.getLogger("cloud")
-    cloud_handler = CloudHandler(**conf['publish'])
+    cloud_handler = CloudHandler(client, **conf['publish'])
     cloud_logger.addHandler(cloud_handler)
-    # Initialize the tracker.
-    tracker = Tracker(profile_path, cloud_logger, pos_dim, pos_algo, timeout)
+    return cloud_logger
+
+
+def init_tracker(cloud_logger, conf: dict):
+    data_dir = conf['global']['data_dir']
+    profile_path = data_dir / conf['profile']
+    tracker = Tracker(profile_path, cloud_logger, **conf['tracking'])
+    return tracker
+
+
+def main():
+    """Entry point"""
+    # Parse arguments and load configuration.
+    conf = get_config()
+    client = CloudIOTClient(**conf['cloud'])
+    logger = init_logger(client, conf)
+    tracker = init_tracker(logger, conf)
     # Start tracking.
-    loop_cnt = 0
+    pos_period = conf['interval']
+    tracker.logger.debug("Starting.")
     try:
-        cloud_logger.debug("Starting.")
         while True:
             t_start = time.time()
-            if loop_cnt % check_every_n_loops == 0:
-                tracker.check()
-                # for tag in tracker.tags:
-                #     tracker.log_anchor_config(tag)
-            loop_cnt += 1
             tracker.loop()
             t_elapsed = time.time() - t_start
             time.sleep(pos_period - t_elapsed)
     except KeyboardInterrupt:
-        cloud_logger.debug("Exiting.")
-        cloud_handler.client.disconnect()
+        pass
+    tracker.logger.debug("Exiting.")
+    client.disconnect()
 
 
 if __name__ == "__main__":
