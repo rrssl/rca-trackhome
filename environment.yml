@@ -3,14 +3,17 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
+  - python=3.9
   - cryptography
+  - jupyterlab
+  - jupytext
   - numpy
   - pip
   - pyjwt
   - python-lsp-server
   - pyyaml
   - pip:
+    - open3d
     - paho-mqtt
     - pypozyx
 prefix: /home/robin/miniconda3/envs/hups
