@@ -34,10 +34,15 @@ def main():
     depth_dir.mkdir(exist_ok=True)
     while not reader.is_eof():
         rgbd = reader.next_frame()
+        if rgbd is None:
+            # Skip invalid frames
+            continue
         color_path = color_dir / f"{idx:05d}.jpg"
         o3d.io.write_image(str(color_path), rgbd.color)
         depth_path = depth_dir / f"{idx:05d}.png"
         o3d.io.write_image(str(depth_path), rgbd.depth)
+        if idx % 100 == 0:
+            print(f"Wrote {color_path.name}")
         idx += 1
 
 
