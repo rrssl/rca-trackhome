@@ -13,6 +13,8 @@ dependencies:
   - python-lsp-server
   - pyyaml
   - pip:
+    - google-cloud-iot
+    - google-cloud-pubsub
     - open3d
     - paho-mqtt
     - pypozyx
