@@ -21,7 +21,7 @@ publish:
   jwt_expires_minutes: 15
 
 pull:
-  service_account_json: rtls_log_manager_key.json
+  service_account_json:
 
 tracking:
   check_period: 12

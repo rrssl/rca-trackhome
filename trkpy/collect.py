@@ -118,3 +118,4 @@ class CloudIOTCollector:
                 if write_header:
                     writer.writeheader()
                 writer.writerows(rows)
+            print(f"Wrote {len(rows)} rows to {flush_path}")
