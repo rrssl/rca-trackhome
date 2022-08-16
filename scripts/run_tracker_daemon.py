@@ -63,14 +63,14 @@ def main():
             else:
                 client.loop()
             t_elapsed = time.time() - t_start
-            time.sleep(pos_period - t_elapsed)
+            time.sleep(max(0, pos_period - t_elapsed))
     except KeyboardInterrupt:
         pass
     finally:
         tracker.logger.debug("Exiting.")
         client.disconnect()
         pid_file.unlink()
-        # subprocess.call(['poweroff'])
+        subprocess.call(['sudo', 'poweroff'])
 
 
 if __name__ == "__main__":

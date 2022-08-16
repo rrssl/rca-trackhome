@@ -182,6 +182,8 @@ class CloudHandler(logging.Handler):
             topic = "location"
         elif record.levelno == logging.DEBUG:
             topic = "debug"
+        elif record.levelno == logging.ERROR:
+            topic = "error"
         else:
             topic = "default"
         mqtt_topic = f"/devices/{client.device_id}/events/{topic}"
