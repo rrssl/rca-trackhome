@@ -2,6 +2,7 @@
 Collect and save telemetry from Google Cloud Pub/Sub topics.
 """
 import argparse
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -51,8 +52,22 @@ def get_config():
     return vars(aconf) | fconf
 
 
+def init_logger():
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    stream_handler = logging.StreamHandler()
+    stream_formatter = logging.Formatter(
+        fmt='|{asctime}|{levelname}|{name}|{funcName}|{message}',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        style='{'
+    )
+    stream_handler.setFormatter(stream_formatter)
+    root_logger.addHandler(stream_handler)
+
+
 def main():
     """Entry point."""
+    init_logger()
     conf = get_config()
     auth_dir = Path(conf['global']['auth_dir'])
     conf['pull']['service_account_json'] = (

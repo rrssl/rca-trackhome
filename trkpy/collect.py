@@ -1,5 +1,6 @@
 """Collects tracking logs from the cloud"""
 import json
+import logging
 from concurrent import futures
 from csv import DictWriter
 from datetime import datetime
@@ -8,6 +9,8 @@ from pathlib import Path
 
 from google.cloud.pubsub_v1 import SubscriberClient
 from google.cloud.pubsub_v1.subscriber.message import Message
+
+logger = logging.getLogger(__name__)
 
 
 class CloudIOTCollector:
@@ -74,6 +77,7 @@ class CloudIOTCollector:
         # Process the collected logs.
         for sub, buffer in self._sub_buffers.items():
             buffer.sort(key=itemgetter(2))  # sort by pubtime, in place
+            logger.info(f"{len(buffer)} rows currently queued in '{sub}'")
 
     def flush(self, older_than: datetime = None):
         for sub, buffer in self._sub_buffers.items():
@@ -118,4 +122,4 @@ class CloudIOTCollector:
                 if write_header:
                     writer.writeheader()
                 writer.writerows(rows)
-            print(f"Wrote {len(rows)} rows to {flush_path}")
+            logger.info(f"Wrote {len(rows)} rows to {flush_path}")
