@@ -28,6 +28,7 @@ import pandas as pd
 import scipy.interpolate as interp
 import yaml
 from PIL import Image
+from scipy import stats
 
 # %matplotlib widget
 
@@ -37,8 +38,9 @@ from PIL import Image
 # +
 ACONF = {
     'path': "../config/local.yml",
-    'profile': "ldml.json",
-    'recording': "location.csv",
+    'profile': "sportsman/sportsman.json",
+    'recording': "sportsman/tracking/location.csv",
+    'errors': "sportsman/tracking/error.csv",
     'device': "rpi1",
     'figsize': (6, 6),
     'replay_timestep': .1,
@@ -54,8 +56,8 @@ profile_path = data_dir / conf['profile']
 with open(profile_path, 'r') as handle:
     profile = json.load(handle)
 display(profile)
-out_dir = Path(conf['global']['out_dir'])
-recording_path = out_dir / conf['recording']
+recording_path = data_dir / conf['recording']
+errors_path = data_dir / conf['errors']
 # -
 
 # ## Load data
@@ -64,7 +66,8 @@ data = pd.read_csv(recording_path)
 data = data[(data['device'] == conf['device']) & (data['i'] == conf['track_id'])]
 timestamps = pd.to_datetime(data['t'], unit='ms', utc=True).dt.tz_convert("Europe/London")
 data = data.set_index(timestamps)
-data = data.between_time('15:00', '17:00')
+data = data[(data.index.month == 8) & (data.index.day == 12)]
+# data = data.between_time('10:00', '11:00')
 
 # +
 # anchors = profile['anchors']
@@ -99,13 +102,15 @@ slider = widgets.IntSlider(
 
 slider_text = widgets.Label(value=data.index[0].strftime('%H:%M:%S'))
 
-def handle_slider_change(change):
-    pos_plot.set_offsets(data[['x', 'y']].iloc[change.new])
-    pos_line_plot.set_data(data['x'].iloc[:change.new+1], data['y'].iloc[:change.new+1])
-    fig.canvas.draw()
-    slider_text.value = data.index[change.new].strftime('%H:%M:%S')
+def get_slider_change_callback(fig):
 
-slider.observe(handle_slider_change, names='value')
+    def cb(change):
+        pos_plot.set_offsets(data[['x', 'y']].iloc[change.new])
+        pos_line_plot.set_data(data['x'].iloc[:change.new+1], data['y'].iloc[:change.new+1])
+        fig.canvas.draw()
+        slider_text.value = data.index[change.new].strftime('%H:%M:%S')
+
+    return cb
 
 play = widgets.Play(
     value=0,
@@ -124,6 +129,8 @@ controls = widgets.HBox([play, slider, slider_text])
 fig, ax = plt.subplots(figsize=conf['figsize'])
 ax.set_axis_off()
 
+slider.observe(get_slider_change_callback(fig), names='value')
+
 # ax.imshow(np.asarray(floorplan_img), extent=extent.ravel(), zorder=2)
 anchors = profile['anchors']
 ax.scatter(*zip(*[xyz[:2] for xyz in anchors.values()]), marker='s', zorder=3)
@@ -138,3 +145,48 @@ pos_line_plot, = ax.plot(data['x'], data['y'], c='tab:olive', alpha=.2, lw=1, zo
 fig.tight_layout()
 
 display(controls)
+
+# +
+valid_data = data[(data['x'] != 0) & (data['y'] != 0)]
+
+
+xmin = valid_data['x'].min()
+xmax = valid_data['x'].max()
+ymin = valid_data['y'].min()
+ymax = valid_data['y'].max()
+
+X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+positions = np.vstack([X.ravel(), Y.ravel()])
+values = np.vstack([valid_data['x'], valid_data['y']])
+kernel = stats.gaussian_kde(values)
+Z = np.reshape(kernel(positions).T, X.shape)
+
+# positions = data[['x', 'y']].values
+# gaussian_kde(positions.T)
+# -
+
+fig, ax = plt.subplots()
+ax.imshow(np.rot90(Z), cmap=plt.cm.gist_earth_r,
+          extent=[xmin, xmax, ymin, ymax])
+# ax.plot(values[0], values[1], 'k.', markersize=2)
+ax.set_xlim([xmin, xmax])
+ax.set_ylim([ymin, ymax])
+plt.show()
+
+errors = pd.read_csv(errors_path)
+timestamps = pd.to_datetime(errors['pubtime'], unit='s', utc=True).dt.tz_convert("Europe/London")
+errors = errors.set_index(timestamps)
+display(errors['message'].value_counts())
+
+fig, ax = plt.subplots(figsize=(12, 12))
+agg_errors = errors['message'].groupby(
+    errors.index.day
+).value_counts(
+).rename(
+    "quantity"
+).reset_index(
+).pivot(
+    index='pubtime', columns='message', values='quantity'
+)
+# display(agg_errors)
+agg_errors.plot(kind='bar', stacked=True, ax=ax);
