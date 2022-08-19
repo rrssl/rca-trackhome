@@ -38,26 +38,32 @@ from scipy import stats
 # +
 ACONF = {
     'path': "../config/local.yml",
-    'profile': "sportsman/sportsman.json",
-    'recording': "sportsman/tracking/location.csv",
-    'errors': "sportsman/tracking/error.csv",
+    'place': "sportsman",
     'device': "rpi1",
     'figsize': (6, 6),
     'replay_timestep': .1,
     'track_id': "0x7625",
+    'display': {
+        'x': 2300,
+        'y': 2550,
+        'scale': 9500,
+        'rotation': 0
+    }
 }
 
 with open(ACONF['path'], 'r') as handle:
     conf = yaml.safe_load(handle)
 conf |= ACONF
 
-data_dir = Path(conf['global']['data_dir'])
-profile_path = data_dir / conf['profile']
+data_dir = Path(conf['global']['data_dir']) / conf['place']
+profile_path = data_dir / "profile.json"
 with open(profile_path, 'r') as handle:
     profile = json.load(handle)
 display(profile)
-recording_path = data_dir / conf['recording']
-errors_path = data_dir / conf['errors']
+anchors = profile['anchors']
+recording_path = data_dir / "tracking" / "location.csv"
+errors_path = data_dir / "tracking" / "error.csv"
+floorplan_path = data_dir / "floorplan" / "furniture.png"
 # -
 
 # ## Load data
@@ -66,31 +72,28 @@ data = pd.read_csv(recording_path)
 data = data[(data['device'] == conf['device']) & (data['i'] == conf['track_id'])]
 timestamps = pd.to_datetime(data['t'], unit='ms', utc=True).dt.tz_convert("Europe/London")
 data = data.set_index(timestamps)
-data = data[(data.index.month == 8) & (data.index.day == 12)]
+data = data.sort_index()
+data = data.drop(data[(data['x'] == 0) & (data['y'] == 0)].index)
+data = data.loc[~((data['x'].shift(-1) == data['x']) & (data['y'].shift(-1) == data['y']))]
+data = data[(data.index.month == 8) & (data.index.day == 15)]
 # data = data.between_time('10:00', '11:00')
+data
 
 # +
-# anchors = profile['anchors']
-
-# floorplan_img = Image.open(profile['floorplan_path'])
-# display_params = profile['display_params']
-# if display_params['rotation']:
-#     floorplan_img = floorplan_img.rotate(display_params['rotation'], expand=True)
-# aspect = floorplan_img.width / floorplan_img.height
-# scale = display_params['scale']
-# shift = np.array([display_params['x'], display_params['y']]).reshape(2, 1)
-# extent = np.array([[-aspect, aspect], [-1, 1]]) / 2 * scale + shift
+# data[data.index.to_series().diff().dt.seconds > 2.0]
 # -
+
+floorplan_img = Image.open(floorplan_path)
+if conf['display']['rotation']:
+    floorplan_img = floorplan_img.rotate(conf['display']['rotation'], expand=True)
+aspect = floorplan_img.width / floorplan_img.height
+scale = conf['display']['scale']
+shift = np.array([conf['display']['x'], conf['display']['y']]).reshape(2, 1)
+extent = np.array([[-aspect, aspect], [-1, 1]]) / 2 * scale + shift
 
 # ## View the recording
 
 # +
-# def id2time(i):
-#     return (
-#         f"{str(datetime.timedelta(seconds=times[i]))[:-5]} / "
-#         f"{str(datetime.timedelta(seconds=times[-1]))[:-5]}"
-#     )
-
 slider = widgets.IntSlider(
     value=0,
     min=0,
@@ -131,8 +134,7 @@ ax.set_axis_off()
 
 slider.observe(get_slider_change_callback(fig), names='value')
 
-# ax.imshow(np.asarray(floorplan_img), extent=extent.ravel(), zorder=2)
-anchors = profile['anchors']
+ax.imshow(np.asarray(floorplan_img), extent=extent.ravel(), zorder=2)
 ax.scatter(*zip(*[xyz[:2] for xyz in anchors.values()]), marker='s', zorder=3)
 for name, xyz in anchors.items():
     ax.annotate(name, xyz[:2], xytext=(5, 5), textcoords='offset pixels',
@@ -166,27 +168,31 @@ Z = np.reshape(kernel(positions).T, X.shape)
 # -
 
 fig, ax = plt.subplots()
+ax.set_axis_off()
+ax.imshow(np.asarray(floorplan_img), extent=extent.ravel(), zorder=2)
 ax.imshow(np.rot90(Z), cmap=plt.cm.gist_earth_r,
           extent=[xmin, xmax, ymin, ymax])
 # ax.plot(values[0], values[1], 'k.', markersize=2)
 ax.set_xlim([xmin, xmax])
-ax.set_ylim([ymin, ymax])
+ax.set_ylim([ymin-1000, ymax])
 plt.show()
 
 errors = pd.read_csv(errors_path)
 timestamps = pd.to_datetime(errors['pubtime'], unit='s', utc=True).dt.tz_convert("Europe/London")
 errors = errors.set_index(timestamps)
+errors = errors.sort_index()
+errors = errors[(errors.index.month == 8) & (errors.index.day == 15)]
+errors = errors.between_time('08:00', '23:00')
 display(errors['message'].value_counts())
 
-fig, ax = plt.subplots(figsize=(12, 12))
-agg_errors = errors['message'].groupby(
-    errors.index.day
-).value_counts(
-).rename(
-    "quantity"
-).reset_index(
-).pivot(
-    index='pubtime', columns='message', values='quantity'
-)
-# display(agg_errors)
-agg_errors.plot(kind='bar', stacked=True, ax=ax);
+# +
+fig, ax = plt.subplots(figsize=(14, 6))
+
+errors['Anchors'] = errors['message'].str.contains("ANCHOR")
+errors['Tag 0x7625'] = errors['message'].str.contains("0x7625")
+errors['Master tag'] = ~(errors['Anchors'] | errors['Tag 0x7625'])
+agg_errors = errors[['Anchors', 'Tag 0x7625', 'Master tag']].resample("10Min").sum()
+
+agg_errors.plot(kind='bar', stacked=True, ax=ax)
+ax.set_xticklabels(agg_errors.index.strftime('%H:%M'))  # , rotation=45, ha='right', rotation_mode='anchor')
+fig.tight_layout()
