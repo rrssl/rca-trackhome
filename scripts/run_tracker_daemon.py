@@ -61,7 +61,7 @@ def main():
             if state['run']:
                 tracker.loop()
             else:
-                client.loop()
+                tracker.loop(check_only=True)
             t_elapsed = time.time() - t_start
             time.sleep(max(0, pos_period - t_elapsed))
     except KeyboardInterrupt:

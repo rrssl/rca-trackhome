@@ -100,7 +100,7 @@ class Tracker:
             res = {'success': False, 't': t_now, 'err': error_msg}
         return res
 
-    def loop(self):
+    def loop(self, check_only: bool = False):
         """Loop through all the devices to localize them."""
         # Potentially run a check first.
         if self.check_period and self.loop_cnt % self.check_period == 0:
@@ -108,6 +108,8 @@ class Tracker:
             # for tag in self.tags:
             #     self.log_anchor_config(tag)
         self.loop_cnt += 1
+        if check_only:
+            return
         # Run through all the registered tags.
         responses = {}
         for tag_id in self.tags:
