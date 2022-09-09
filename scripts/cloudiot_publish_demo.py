@@ -71,6 +71,8 @@ def on_message(unused_client, unused_userdata, message):
     """Method to demonstrate that on_message can be overriden dynamically
     (e.g. to receive commands)."""
     payload = str(message.payload.decode('utf-8'))
+    if payload[0] == '{':
+        payload = json.loads(payload)
     print(f"I just received {payload}")
 
 

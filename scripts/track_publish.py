@@ -145,6 +145,15 @@ class Tracker:
                 f"{tag_str}: {coords}"
             )
 
+    def reload_anchors_from_str(self, profile: str):
+        profile = json.loads(profile)
+        self.anchors = {
+            int(a, 16): tuple(xyz) for a, xyz in profile['anchors'].items()
+        }
+        for tag in self.tags:
+            self.configure_tag(tag)
+        self._tags_to_reconfigure.clear()
+
 
 def get_arg_parser():
     parser = ArgumentParser(description=__doc__)

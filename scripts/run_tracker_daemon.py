@@ -27,12 +27,18 @@ def check_already_running(pid_file: Path):
 def get_state_updater(state: dict):
     def callback(unused_client, unused_userdata, message):
         payload = str(message.payload.decode('utf-8'))
+        # Apply command if applicable.
         if payload == 'START':
             state['run'] = True
         elif payload == 'STOP':
             state['run'] = False
         elif payload == 'POWEROFF':
             state['on'] = False
+        # Update config if applicable.
+        if payload[0] == '{':
+            state['conf'] = payload
+        else:
+            state['conf'] = None
     return callback
 
 
@@ -50,13 +56,19 @@ def main():
     logger = track_publish.init_logger(client, conf)
     tracker = track_publish.init_tracker(logger, conf)
     # Init state dict (will update according to commands).
-    state = {'on': True, 'run': False}
+    state = {'on': True, 'run': False, 'conf': None}
     client.on_message = get_state_updater(state)
     # Start the event loop.
     pos_period = conf['interval']
     tracker.logger.debug("Starting.")
     try:
         while state['on']:
+            # Reload config if applicable.
+            if state['conf']:
+                tracker.reload_anchors_from_str(state['conf'])
+                state['conf'] = None
+                continue
+            # Run the normal loop.
             t_start = time.time()
             if state['run']:
                 tracker.loop()
