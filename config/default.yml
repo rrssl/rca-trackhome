@@ -14,9 +14,6 @@ cloud:
   project_id: home-use-pattern-study
   registry_id: rtls-tags
 
-daemon:
-  pid_file: .trackerpid
-
 publish:
   jwt_expires_minutes: 15
 

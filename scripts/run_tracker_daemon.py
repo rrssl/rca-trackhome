@@ -1,4 +1,5 @@
 """This scripts allows to remotely start/stop tracking and poweroff."""
+import fcntl
 import os
 import subprocess
 import time
@@ -7,21 +8,25 @@ from pathlib import Path
 import track_publish
 
 
-def check_already_running(pid_file: Path):
-    if not pid_file.exists():
-        return False
-    my_name = Path(__file__).with_suffix("").name
-    running_pid = int(pid_file.read_text())
-    running_cmd = subprocess.run(
-        f"ps -fp {running_pid} -o args=".split(),
-        capture_output=True,
-        check=False,
-        encoding='utf-8'
-    ).stdout
-    if my_name in running_cmd and running_pid != os.getpid():
-        # Another daemon is currently running
-        return True
-    return False
+def check_already_running(label="default"):
+    """Detect if an an instance with the label is already running, globally
+    at the operating system level.
+
+    The lock will be released when the program exits, or could be
+    released if the file pointer were closed.
+
+    Source: https://stackoverflow.com/a/384493
+    """
+    lock_path = Path(f"/tmp/tracker_daemon_{label}.lock")
+    # Using `os.open` ensures that the file pointer won't be closed
+    # by Python's garbage collector after the function's scope is exited.
+    lock_file_pointer = os.open(lock_path, os.O_WRONLY | os.O_CREAT)
+    try:
+        fcntl.lockf(lock_file_pointer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        already_running = False
+    except IOError:
+        already_running = True
+    return already_running
 
 
 def get_state_updater(state: dict):
@@ -45,12 +50,10 @@ def get_state_updater(state: dict):
 def main():
     """Entry point"""
     conf = track_publish.get_config()
-    # Check if the daemon is already running and if not, write pid and go on.
-    pid_file = conf['global']['out_dir'] / conf['daemon']['pid_file']
-    if check_already_running(pid_file):
-        print(f"Process {os.getpid()} ending")
+    # Exit if the daemon is already running.
+    if check_already_running():
+        print(f"Process {os.getpid()} ending.")
         return
-    pid_file.write_text(str(os.getpid()))
     # Init cloud client, logger and tracker.
     client = track_publish.CloudIOTClient(**conf['cloud'])
     logger = track_publish.init_logger(client, conf)
@@ -81,7 +84,6 @@ def main():
     finally:
         tracker.logger.debug("Exiting.")
         client.disconnect()
-        pid_file.unlink()
         subprocess.call(['sudo', 'poweroff'])
 
 
