@@ -51,8 +51,9 @@ def main():
     """Entry point"""
     conf = track_publish.get_config()
     # Exit if the daemon is already running.
+    pid = os.getpid()
     if check_already_running():
-        print(f"Process {os.getpid()} ending.")
+        print(f"Process {pid} ending.")
         return
     # Init cloud client, logger and tracker.
     client = track_publish.CloudIOTClient(**conf['cloud'])
@@ -62,10 +63,14 @@ def main():
     state = {'on': True, 'run': False, 'conf': None}
     client.on_message = get_state_updater(state)
     # Start the event loop.
+    counter = 0
     pos_period = conf['interval']
-    tracker.logger.debug("Starting.")
+    tracker.logger.debug(f"Starting ({pid=}).")
     try:
         while state['on']:
+            if counter % 60 == 0:
+                tracker.logger.debug(f"Running ({pid=}).")
+            counter += 1
             # Reload config if applicable.
             if state['conf']:
                 tracker.reload_anchors_from_str(state['conf'])
@@ -82,7 +87,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        tracker.logger.debug("Exiting.")
+        tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
         subprocess.call(['sudo', 'poweroff'])
 

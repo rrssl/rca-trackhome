@@ -59,10 +59,7 @@ def get_latest_error(
         error_message += f": {master.getErrorMessage(error_code)}"
     else:
         # Only happens when not able to communicate with a remote tag.
-        error_message += (
-            f", but couldn't retrieve remote error;"
-            f"{get_latest_error(master, '')}"
-        )
+        error_message += f" (unreachable); {get_latest_error(master, '')}"
     return error_message
 
 
