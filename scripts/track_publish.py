@@ -42,7 +42,8 @@ class Tracker:
         pos_algo: str,
         check_period: int,
         timeout: float,
-        wait_time: float
+        wait_time: float,
+        **kwargs
     ):
         self.logger = logger
         self.pos_dim = pos_dim
