@@ -1,5 +1,6 @@
 """This scripts allows to remotely start/stop tracking and poweroff."""
 import fcntl
+import json
 import os
 import subprocess
 import time
@@ -64,7 +65,8 @@ def main():
     client.on_message = get_state_updater(state)
     # Start the event loop.
     counter = 0
-    pos_period = conf['interval']
+    pos_period = conf['tracking']['interval']
+    poweroff_on_exit = True
     tracker.logger.debug(f"Starting ({pid=}).")
     try:
         while state['on']:
@@ -73,7 +75,9 @@ def main():
             counter += 1
             # Reload config if applicable.
             if state['conf']:
-                tracker.reload_anchors_from_str(state['conf'])
+                state_conf = json.loads(state['conf'])
+                pos_period = state_conf['interval']
+                tracker.reload_conf(state_conf)
                 state['conf'] = None
                 continue
             # Run the normal loop.
@@ -85,11 +89,12 @@ def main():
             t_elapsed = time.time() - t_start
             time.sleep(max(0, pos_period - t_elapsed))
     except KeyboardInterrupt:
-        pass
+        poweroff_on_exit = False
     finally:
         tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
-        subprocess.call(['sudo', 'poweroff'])
+        if poweroff_on_exit:
+            subprocess.call(['sudo', 'poweroff'])
 
 
 if __name__ == "__main__":

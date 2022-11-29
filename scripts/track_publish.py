@@ -12,36 +12,54 @@ from trkpy.publish import CloudHandler, CloudIOTClient
 
 
 class Tracker:
-    """High-level manager of the real-time location system."""
+    """High-level manager of the real-time location system.
+
+    Parameters
+    ----------
+    profile_path : str
+      Path to the JSON file holding the tracking config for a specific place.
+    logger : logging.Logger
+      Logger instance used to publish messages and telemetry.
+    pos_dim : (2, 3)
+      Dimensionality of the location measurements.
+    pos_algo : (POSITIONING_ALGORITHM_UWB_ONLY, POSITIONING_ALGORITHM_TRACKING)
+      Type of tracking algorithm used (TRACKING will use previous estimates to
+      smooth the results; only useful with sub-second update periods).
+    check_period : int
+      Number of positioning loops between each anchor/tag check.
+    timeout : float
+      Timeout parameter given to the tracking interface.
+    wait_time : float
+      Wait time between each tag positioning call.
+
+    """
 
     def __init__(
         self,
         profile_path: str,
         logger: logging.Logger,
-        pos_dim: int,
-        pos_algo: int,
+        pos_dim: str,
+        pos_algo: str,
         check_period: int,
         timeout: float,
+        wait_time: float
     ):
         self.logger = logger
         self.pos_dim = pos_dim
         self.pos_algo = pos_algo
         self.check_period = check_period
         self.loop_cnt = 0
-        self.wait_time = .5  # wait time between tags
+        self.wait_time = wait_time
 
         # Init the interface.
         self.interface = track.init_master(timeout=timeout)
         # Init the devices.
-        with open(profile_path) as handle:
-            profile = json.load(handle)
-        self.tags = [t if t is None else int(t, 16) for t in profile['tags']]
-        self.anchors = {
-            int(a, 16): tuple(xyz) for a, xyz in profile['anchors'].items()
-        }
-        for tag in self.tags:
-            self.configure_tag(tag)
+        self.tags = set()
+        self.anchors = dict()
         self._tags_to_reconfigure = set()
+        with open(profile_path) as handle:
+            conf = json.load(handle)
+        self.reload_conf(conf)
 
     def check(self):
         """Check that all devices are currently connected."""
@@ -145,10 +163,10 @@ class Tracker:
                 f"{tag_str}: {coords}"
             )
 
-    def reload_anchors_from_str(self, profile: str):
-        profile = json.loads(profile)
+    def reload_conf(self, conf: dict):
+        self.tags = {t if t is None else int(t, 16) for t in conf['tags']}
         self.anchors = {
-            int(a, 16): tuple(xyz) for a, xyz in profile['anchors'].items()
+            int(a, 16): tuple(xyz) for a, xyz in conf['anchors'].items()
         }
         for tag in self.tags:
             self.configure_tag(tag)
@@ -167,12 +185,6 @@ def get_arg_parser():
         '--profile',
         required=True,
         help="Name of the profile"
-    )
-    parser.add_argument(
-        '--interval',
-        type=float,
-        default=1,
-        help="Interval in seconds between measurements (default 1s)"
     )
     return parser
 
@@ -205,7 +217,7 @@ def get_config():
     return conf
 
 
-def init_logger(client: CloudIOTClient, conf: dict):
+def init_logger(client: CloudIOTClient, conf: dict) -> logging.Logger:
     out_dir = conf['global']['out_dir']
     name = Path(__file__).with_suffix("").name
     log_path = out_dir / f"{name}.log"
@@ -227,7 +239,7 @@ def init_logger(client: CloudIOTClient, conf: dict):
     return cloud_logger
 
 
-def init_tracker(cloud_logger, conf: dict):
+def init_tracker(cloud_logger, conf: dict) -> Tracker:
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
     tracker = Tracker(profile_path, cloud_logger, **conf['tracking'])
@@ -242,14 +254,14 @@ def main():
     logger = init_logger(client, conf)
     tracker = init_tracker(logger, conf)
     # Start tracking.
-    pos_period = conf['interval']
+    pos_period = conf['tracking']['interval']
     tracker.logger.debug("Starting.")
     try:
         while True:
             t_start = time.time()
             tracker.loop()
             t_elapsed = time.time() - t_start
-            time.sleep(pos_period - t_elapsed)
+            time.sleep(max(0, pos_period - t_elapsed))
     except KeyboardInterrupt:
         pass
     tracker.logger.debug("Exiting.")

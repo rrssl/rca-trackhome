@@ -22,6 +22,8 @@ pull:
 
 tracking:
   check_period: 12
+  interval: 1
   pos_algo: POSITIONING_ALGORITHM_UWB_ONLY
-  pos_dim: DIMENSION_3D
+  pos_dim: 3
   timeout: 1
+  wait_time: 0.5
