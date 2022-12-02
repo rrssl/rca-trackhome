@@ -26,12 +26,12 @@ def main():
     # ID of the tag performing the ranging. If you want the master tag to
     # perform it, then this ID should be None! It won't work if the ID is the
     # same as the master's.
-    # remote_id = None
-    remote_id = 0x7625
+    remote_id = None
+    # remote_id = 0x7625
     # ID of the tag to which the distance is measured. It can be the master tag
     # as long as remote tag is selected to perform the ranging.
-    # destination_id = 0x7625
-    destination_id = 0x764c
+    destination_id = 0x7625
+    # destination_id = 0x764c
     # The ranging protocol. Alternative: PozyxConstants.RANGE_PROTOCOL_FAST
     ranging_protocol = PozyxConstants.RANGE_PROTOCOL_PRECISION
 
