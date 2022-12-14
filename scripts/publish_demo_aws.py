@@ -1,5 +1,5 @@
 """
-Python sample for publishing to Google Cloud IoT Core via MQTT.
+Python sample for publishing to AWS IoT via MQTT.
 """
 import argparse
 import json
@@ -8,7 +8,7 @@ import random
 import time
 
 import track_publish
-from trkpy.cloud import GoogleClient
+from trkpy.cloud import AWSClient
 
 # logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.CRITICAL)
 
@@ -54,7 +54,7 @@ def main():
     """Entry point."""
     track_publish.get_arg_parser = get_arg_parser
     conf = track_publish.get_config()
-    client = GoogleClient(**conf['cloud']['gcloud'])
+    client = AWSClient(**conf['cloud']['aws'])
     client._client.on_message = on_message
     logger = track_publish.init_logger(client, conf, term_out=True)
     while not client.connected:

@@ -4,15 +4,24 @@ global:
   out_dir: .
 
 cloud:
-  algorithm: RS256
-  ca_certs: google_CA_roots.pem
-  cloud_region: europe-west1
-  device_id:
-  mqtt_bridge_hostname: mqtt.googleapis.com
-  mqtt_bridge_port: 8883
-  private_key_file: rsa_gcloud_private.pem
-  project_id: home-use-pattern-study
-  registry_id: rtls-tags
+  aws:
+    ca_certs: root-CA.crt
+    client_id:
+    device_cert:
+    device_private_key:
+    host:
+    port: 8883
+  gcloud:
+    algorithm: RS256
+    ca_certs: google_CA_roots.pem
+    cloud_region: europe-west1
+    device_id:
+    device_private_key:
+    host: mqtt.googleapis.com
+    jwt_expires_minutes: 15
+    port: 8883
+    project_id: home-use-pattern-study
+    registry_id: rtls-tags
 
 publish:
   jwt_expires_minutes: 15

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import yaml
 
+from trkpy import cloud
 from trkpy import track
-from trkpy.publish import CloudHandler, CloudIOTClient
+from trkpy.publish import CloudHandler
 
 
 class Tracker:
@@ -209,16 +210,25 @@ def get_config():
                 section[key] = Path(value)
     # Merge configs.
     conf = vars(aconf) | fconf
-    # Process some specific paths.
+    # Process authentication file paths.
     auth_dir = conf['global']['auth_dir']
-    conf['cloud']['ca_certs'] = auth_dir / conf['cloud']['ca_certs']
-    conf['cloud']['private_key_file'] = (
-        auth_dir / conf['cloud']['private_key_file']
-    )
+    for provider, cloud_conf in conf['cloud'].items():
+        cloud_conf['ca_certs'] = auth_dir / provider / cloud_conf['ca_certs']
+        cloud_conf['device_private_key'] = (
+            auth_dir / provider / cloud_conf['device_private_key']
+        )
+        if 'device_cert' in cloud_conf:
+            cloud_conf['device_cert'] = (
+                auth_dir / provider / cloud_conf['device_cert']
+            )
     return conf
 
 
-def init_logger(client: CloudIOTClient, conf: dict) -> logging.Logger:
+def init_logger(
+    client: cloud.CloudClient,
+    conf: dict,
+    term_out: bool = False
+) -> logging.Logger:
     out_dir = conf['global']['out_dir']
     name = Path(__file__).with_suffix("").name
     log_path = out_dir / f"{name}.log"
@@ -233,9 +243,13 @@ def init_logger(client: CloudIOTClient, conf: dict) -> logging.Logger:
     )
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
+    if term_out:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(file_formatter)
+        root_logger.addHandler(stream_handler)
     # - cloud logger.
     cloud_logger = logging.getLogger("cloud")
-    cloud_handler = CloudHandler(client, **conf['publish'])
+    cloud_handler = CloudHandler(client)
     cloud_logger.addHandler(cloud_handler)
     return cloud_logger
 
@@ -251,7 +265,7 @@ def main():
     """Entry point"""
     # Parse arguments and load configuration.
     conf = get_config()
-    client = CloudIOTClient(**conf['cloud'])
+    client = cloud.GoogleClient(**conf['cloud'])
     logger = init_logger(client, conf)
     tracker = init_tracker(logger, conf)
     # Start tracking.
