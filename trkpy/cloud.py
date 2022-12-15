@@ -23,7 +23,8 @@ class CloudClient:
         publisher: bool = True
     ):
         self.connected = False
-        self._client = mqtt.Client(client_id=client_id)
+        self.client_id = client_id
+        self._client = mqtt.Client(client_id, clean_session=publisher)
         self._setup_callbacks()
         # Connect.
         self.ca_certs = ca_certs
@@ -66,9 +67,9 @@ class CloudClient:
             # QoS = 1 because we want to be sure it is received.
             self._client.subscribe(self._get_topic_path("config"), qos=1)
         else:
-            self._client.subscribe(self._get_topic_path("debug"), qos=0)
-            self._client.subscribe(self._get_topic_path("error"), qos=0)
-            self._client.subscribe(self._get_topic_path("location"), qos=0)
+            self._client.subscribe(self._get_topic_path("debug"), qos=1)
+            self._client.subscribe(self._get_topic_path("error"), qos=1)
+            self._client.subscribe(self._get_topic_path("location"), qos=1)
 
     def on_disconnect(self, unused_client, unused_userdata, rc):
         """Callback for when a device disconnects."""
@@ -98,13 +99,13 @@ class CloudClient:
         logger.debug(f"Successfully subscribed with QoS {granted_qos}.")
 
     def publish(self, topic, msg):
-        """Publish to the MQTT topic (QoS=0)."""
+        """Publish to the MQTT topic (QoS=1)."""
         self._update_auth()
-        self._client.publish(self._get_topic_path(topic), msg, qos=0)
+        self._client.publish(self._get_topic_path(topic), msg, qos=1)
 
     def reinitialise(self):
         self.connected = False
-        self._client.reinitialise(client_id=self._client._client_id)
+        self._client.reinitialise(client_id=self.client_id)
         self._setup_callbacks()
         # Connect.
         self._setup_auth()

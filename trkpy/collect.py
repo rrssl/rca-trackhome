@@ -3,17 +3,90 @@ import json
 import logging
 from concurrent import futures
 from csv import DictWriter
-from datetime import datetime
+from datetime import datetime, timezone
 from operator import itemgetter, methodcaller
 from pathlib import Path
 
 from google.cloud.pubsub_v1 import SubscriberClient
 from google.cloud.pubsub_v1.subscriber.message import Message
 
+from trkpy.cloud import CloudClient
+
 logger = logging.getLogger(__name__)
 
 
-class CloudIOTCollector:
+class CloudCollector:
+    """Collects logs via MQTT."""
+
+    def __init__(
+        self,
+        client: CloudClient,
+        subscriptions: list[str],
+        dtypes: list[str],
+        flush_dir: Path,
+    ):
+        self._subscriptions = subscriptions
+        self._dtypes = {sub: dt for sub, dt in zip(subscriptions, dtypes)}
+        self.flush_dir = flush_dir
+        self._sub_buffers = {sub: [] for sub in subscriptions}
+
+        self.client = client
+        self.client._client.on_message = self.on_message
+        self.client.start()
+
+    def on_message(self, unused_client, unused_userdata, message):
+        """Callback when the device receives a message on a subscription."""
+        rectime = datetime.now(timezone.utc)
+        dtype = self._dtypes[message.topic]
+        if dtype == 'json':
+            data = json.loads(message.payload)
+        else:
+            data = str(message.payload.decode('utf-8'))
+        logger.debug(data)
+        self._sub_buffers[message.topic].append((data, rectime))
+
+    def flush(self, older_than: datetime = None):
+        for sub, buffer in self._sub_buffers.items():
+            logger.info(f"{len(buffer)} rows currently queued in '{sub}'")
+            # Split the buffer between what to keep and what to flush.
+            if older_than is not None:
+                try:
+                    # Find the first element more recent than `older_than`.
+                    split = next(
+                        i for i, (_, rectime) in enumerate(buffer)
+                        if rectime > older_than
+                    )
+                except StopIteration:
+                    # Nothing in the buffer is more recent than `older_than`.
+                    split = len(buffer)
+            else:
+                split = len(buffer)
+            if split == 0:
+                # Nothing in the buffer is older than `older_than`.
+                continue
+            to_flush = buffer[:split]
+            self._sub_buffers[sub] = buffer[split:]
+            # Format the data for flushing to CSV.
+            rows = []
+            for data, rectime in to_flush:
+                row = {'rectime': rectime.timestamp()}
+                if isinstance(data, dict):
+                    row.update(data)
+                else:
+                    row['message'] = data
+                rows.append(row)
+            # Write the CSV file.
+            flush_path = self.flush_dir / f"{sub}.csv"
+            write_header = not flush_path.exists()
+            with open(flush_path, 'a', newline='') as stream:
+                writer = DictWriter(stream, fieldnames=row.keys())
+                if write_header:
+                    writer.writeheader()
+                writer.writerows(rows)
+            logger.info(f"Wrote {len(rows)} rows to {flush_path}")
+
+
+class GoogleCollector:
     """Periodically collects all the logs published on the cloud"""
 
     def __init__(

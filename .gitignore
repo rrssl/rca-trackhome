@@ -1,6 +1,7 @@
 # Custom
 pylintrc
 tags
+auth/
 config/local.*
 *.ipynb
 _*/

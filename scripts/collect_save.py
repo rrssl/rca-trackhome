@@ -9,7 +9,8 @@ from pathlib import Path
 
 import yaml
 
-from trkpy.collect import CloudIOTCollector
+from trkpy.cloud import AWSClient
+from trkpy.collect import CloudCollector
 
 
 def get_arg_parser():
@@ -24,32 +25,45 @@ def get_arg_parser():
         help="Path to the YAML config file."
     )
     parser.add_argument(
-        "--collect_every",
-        default=60,
-        type=int,
-        help="Collection interval (in seconds). Default: 60",
-    )
-    parser.add_argument(
         "--write_after",
         default=300,
         type=int,
         help="Flush logs older than this amount (in seconds). Default: 300",
     )
-    parser.add_argument(
-        "--timeout",
-        default=3,
-        type=int,
-        help="Timeout for requests (in seconds). Default: 3",
-    )
-
     return parser
 
 
 def get_config():
-    aconf = get_arg_parser().parse_args()
-    with open(aconf.config, 'r') as stream:
-        fconf = yaml.safe_load(stream)
-    return vars(aconf) | fconf
+    # Load the configuration.
+    aconf, fconf_override = get_arg_parser().parse_known_args()
+    with open(aconf.config, 'r') as handle:
+        fconf = yaml.safe_load(handle)
+    # Override file config with "--section.option val" command line arguments.
+    args = iter(fconf_override)
+    for name, val in zip(args, args):
+        section, option = name[2:].split('.')
+        fconf[section][option] = val
+    # Preprocess paths to make life easier.
+    for section in fconf.values():
+        for key, value in section.items():
+            if not isinstance(value, str):
+                continue
+            if "/" in value or value in (".", "..", "~"):  # UNIX path
+                section[key] = Path(value)
+    # Merge configs.
+    conf = vars(aconf) | fconf
+    # Process authentication file paths.
+    auth_dir = conf['global']['auth_dir']
+    for provider, cloud_conf in conf['cloud'].items():
+        cloud_conf['ca_certs'] = auth_dir / provider / cloud_conf['ca_certs']
+        cloud_conf['device_private_key'] = (
+            auth_dir / provider / cloud_conf['device_private_key']
+        )
+        if 'device_cert' in cloud_conf:
+            cloud_conf['device_cert'] = (
+                auth_dir / provider / cloud_conf['device_cert']
+            )
+    return conf
 
 
 def init_logger():
@@ -69,30 +83,25 @@ def main():
     """Entry point."""
     init_logger()
     conf = get_config()
-    auth_dir = Path(conf['global']['auth_dir'])
-    conf['pull']['service_account_json'] = (
-        auth_dir / conf['pull']['service_account_json']
-    )
+    print(conf)
+    client = AWSClient(**conf['cloud']['aws'], publisher=False)
     out_dir = Path(conf['global']['out_dir'])
     subscriptions = ['location', 'error', 'debug']
     types = ['json', 'str', 'str']
-    collector = CloudIOTCollector(
+    collector = CloudCollector(
+        client,
         subscriptions,
         types,
         flush_dir=out_dir,
-        project_id=conf['cloud']['project_id'],
-        service_account_json=conf['pull']['service_account_json'],
-        timeout=conf['timeout']
     )
-    collect_every = conf['collect_every']
     write_after = timedelta(seconds=conf['write_after'])
     try:
         while True:
-            collector.collect()
             write_time = datetime.now(timezone.utc) - write_after
             collector.flush(older_than=write_time)
-            time.sleep(collect_every)
+            time.sleep(60)
     except KeyboardInterrupt:
+        client.disconnect()
         return
 
 
