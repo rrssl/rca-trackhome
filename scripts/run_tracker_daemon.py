@@ -5,7 +5,8 @@ import subprocess
 import time
 
 import track_publish
-from trkpy.system import lock_file
+from trkpy.cloud import AWSClient
+from trkpy.system import is_online, lock_file
 
 
 def check_already_running(conf: dict):
@@ -43,13 +44,19 @@ def main():
     if check_already_running(conf):
         print(f"Process {pid} ending.")
         return
-    # Init cloud client, logger and tracker.
-    client = track_publish.CloudIOTClient(**conf['cloud'])
-    logger = track_publish.init_logger(client, conf)
-    tracker = track_publish.init_tracker(logger, conf)
+    while not is_online():
+        time.sleep(3)
+    # Init cloud client.
+    client = AWSClient(**conf['cloud']['aws'])
     # Init state dict (will update according to commands).
     state = {'on': True, 'run': False, 'conf': None}
-    client.on_message = get_state_updater(state)
+    client._client.on_message = get_state_updater(state)
+    # Init logger.
+    logger = track_publish.init_logger(client, conf)
+    while not client.connected:
+        time.sleep(1)
+    # Init tracker.
+    tracker = track_publish.init_tracker(logger, conf)
     # Start the event loop.
     counter = 0
     pos_period = conf['tracking']['interval']

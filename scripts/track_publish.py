@@ -265,8 +265,10 @@ def main():
     """Entry point"""
     # Parse arguments and load configuration.
     conf = get_config()
-    client = cloud.GoogleClient(**conf['cloud'])
-    logger = init_logger(client, conf)
+    client = cloud.AWSClient(**conf['cloud']['aws'])
+    logger = init_logger(client, conf, term_out=True)
+    while not client.connected:
+        time.sleep(1)
     tracker = init_tracker(logger, conf)
     # Start tracking.
     pos_period = conf['tracking']['interval']
