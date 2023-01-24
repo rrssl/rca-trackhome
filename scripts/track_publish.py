@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import yaml
+from gpiozero import JamHat
 
 from trkpy import cloud
 from trkpy import track
@@ -44,6 +45,7 @@ class Tracker:
         check_period: int,
         timeout: float,
         wait_time: float,
+        output: JamHat = None,
         **kwargs
     ):
         self.logger = logger
@@ -62,6 +64,8 @@ class Tracker:
         with open(profile_path) as handle:
             conf = json.load(handle)
         self.reload_conf(conf)
+        # Init the optional output.
+        self.output = output
 
     def check(self):
         """Check that all devices are currently connected."""
@@ -134,9 +138,13 @@ class Tracker:
         responses = {}
         for tag_id in self.tags:
             self.interface.setLed(1, True, tag_id)
+            if self.output is not None:
+                self.output.lights_1.green.on()
             time.sleep(self.wait_time)
             responses[tag_id] = self.localize(tag_id)
             self.interface.setLed(1, False, tag_id)
+            if self.output is not None:
+                self.output.lights_1.green.off()
         for tag_id, res in responses.items():
             if res['success']:
                 if tag_id in self._tags_to_reconfigure:
@@ -254,10 +262,10 @@ def init_logger(
     return cloud_logger
 
 
-def init_tracker(cloud_logger, conf: dict) -> Tracker:
+def init_tracker(cloud_logger, conf: dict, output=None) -> Tracker:
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
-    tracker = Tracker(profile_path, cloud_logger, **conf['tracking'])
+    tracker = Tracker(profile_path, cloud_logger, output, **conf['tracking'])
     return tracker
 
 
