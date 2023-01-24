@@ -15,6 +15,7 @@ dependencies:
   - pip:
     - google-cloud-iot
     - google-cloud-pubsub
+    - gpiozero
     - open3d
     - paho-mqtt
     - pypozyx

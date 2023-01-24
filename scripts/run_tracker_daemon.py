@@ -1,33 +1,20 @@
 """This scripts allows to remotely start/stop tracking and poweroff."""
-import fcntl
 import json
 import os
 import subprocess
 import time
-from pathlib import Path
 
 import track_publish
+from trkpy.system import lock_file
 
 
-def check_already_running(label="default"):
+def check_already_running(conf: dict):
     """Detect if an an instance with the label is already running, globally
     at the operating system level.
-
-    The lock will be released when the program exits, or could be
-    released if the file pointer were closed.
-
-    Source: https://stackoverflow.com/a/384493
     """
-    lock_path = Path(f"/tmp/tracker_daemon_{label}.lock")
-    # Using `os.open` ensures that the file pointer won't be closed
-    # by Python's garbage collector after the function's scope is exited.
-    lock_file_pointer = os.open(lock_path, os.O_WRONLY | os.O_CREAT)
-    try:
-        fcntl.lockf(lock_file_pointer, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        already_running = False
-    except IOError:
-        already_running = True
-    return already_running
+    lock_path = conf['daemon']['lock_file']
+    is_locked = lock_file(lock_path)
+    return not is_locked
 
 
 def get_state_updater(state: dict):
@@ -53,7 +40,7 @@ def main():
     conf = track_publish.get_config()
     # Exit if the daemon is already running.
     pid = os.getpid()
-    if check_already_running():
+    if check_already_running(conf):
         print(f"Process {pid} ending.")
         return
     # Init cloud client, logger and tracker.

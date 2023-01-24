@@ -23,8 +23,8 @@ cloud:
     project_id: home-use-pattern-study
     registry_id: rtls-tags
 
-publish:
-  jwt_expires_minutes: 15
+daemon:
+  lock_file: /tmp/tracker_daemon.lock
 
 pull:
   service_account_json:
