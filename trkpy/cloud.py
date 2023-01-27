@@ -7,6 +7,7 @@ from pathlib import Path
 
 import jwt
 import paho.mqtt.client as mqtt
+from paho.mqtt.packettypes import PacketTypes
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class CloudClient:
     ):
         self.connected = False
         self.client_id = client_id
-        self._client = mqtt.Client(client_id, clean_session=publisher)
+        self._client = mqtt.Client(client_id, protocol=mqtt.MQTTv5)
         self._setup_callbacks()
         # Connect.
         self.ca_certs = ca_certs
@@ -58,9 +59,16 @@ class CloudClient:
         self._client.loop_stop()
         return self._client.disconnect()
 
-    def on_connect(self, unused_client, unused_userdata, unused_flags, rc):
+    def on_connect(
+        self,
+        unused_client,
+        unused_userdata,
+        unused_flags,
+        reasonCode,
+        properties
+    ):
         """Callback for when a device connects."""
-        logger.debug(mqtt.connack_string(rc))
+        logger.debug(f"Connection outcome: {reasonCode}")
         self.connected = True
         if self.publisher:
             self._client.subscribe(self._get_topic_path("commands"), qos=0)
@@ -71,9 +79,19 @@ class CloudClient:
             self._client.subscribe(self._get_topic_path("error"), qos=1)
             self._client.subscribe(self._get_topic_path("location"), qos=1)
 
-    def on_disconnect(self, unused_client, unused_userdata, rc):
+    def on_disconnect(
+        self,
+        unused_client,
+        unused_userdata,
+        reasonCode,
+        properties
+    ):
         """Callback for when a device disconnects."""
-        logger.debug(mqtt.error_string(rc))
+        # For some reason reasonCode does not come as a ReasonCode (bug?).
+        reasonCode = mqtt.ReasonCodes(
+            PacketTypes.DISCONNECT, identifier=reasonCode
+        )
+        logger.debug(f"Disconnection outcome: {reasonCode}")
         self.connected = False
 
     def on_message(self, unused_client, unused_userdata, message):
@@ -93,15 +111,29 @@ class CloudClient:
         unused_client,
         unused_userdata,
         unused_mid,
-        granted_qos
+        reasonCodes,
+        properties
     ):
         """Callback when the client subscribes to a topic."""
-        logger.debug(f"Successfully subscribed with QoS {granted_qos}.")
+        logger.debug(f"Subscription outcome: {reasonCodes[0]}.")
 
     def publish(self, topic, msg):
         """Publish to the MQTT topic (QoS=1)."""
         self._update_auth()
-        self._client.publish(self._get_topic_path(topic), msg, qos=1)
+        props = mqtt.Properties(PacketTypes.PUBLISH)
+        now_str = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S.%f %Z"
+        )
+        props.UserProperty = [
+            ('client_id', self.client_id),
+            ('timestamp', now_str)
+        ]
+        self._client.publish(
+            self._get_topic_path(topic),
+            msg,
+            qos=1,
+            properties=props
+        )
 
     def reinitialise(self):
         self.connected = False
