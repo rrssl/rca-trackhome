@@ -9,8 +9,6 @@ import time
 import track_publish
 from trkpy.cloud import AWSClient
 
-logging.basicConfig(level=logging.DEBUG)
-
 
 def get_arg_parser():
     """Parse command line arguments."""
@@ -21,11 +19,11 @@ def get_arg_parser():
         required=True,
         help="Path to the YAML config file."
     )
-    # parser.add_argument(
-    #     "--device",
-    #     required=True,
-    #     help="Name of the device",
-    # )
+    parser.add_argument(
+        "--device",
+        required=True,
+        help="Name of the device",
+    )
     parser.add_argument(
         "--command",
         help="Command to send to the device.",
@@ -41,16 +39,18 @@ def main():
     """Entry point."""
     track_publish.get_arg_parser = get_arg_parser
     conf = track_publish.get_config()
+    logging.basicConfig(level=logging.DEBUG)
     client = AWSClient(**conf['cloud']['aws'])
-    # track_publish.init_logger(client, conf, term_out=True)
+    client.start()
     while not client.connected:
+        logging.debug("Waiting to connect...")
         time.sleep(1)
-    if 'command' in conf:
-        client.publish('commands', conf['command'])
-    elif 'profile' in conf:
+    if conf.get('command') is not None:
+        client.publish(f"commands/{conf['device']}", conf['command'])
+    elif conf.get('profile') is not None:
         with open(conf['profile'], 'r') as handle:
             profile = json.load(handle)
-        client.publish('config', json.dumps(profile))
+        client.publish(f"config/{conf['device']}", json.dumps(profile))
     client.disconnect()
 
 

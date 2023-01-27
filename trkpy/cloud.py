@@ -163,6 +163,11 @@ class AWSClient(CloudClient):
         self.device_private_key = device_private_key
         super().__init__(client_id, host, port, ca_certs, publisher)
 
+    def _get_topic_path(self, topic: str) -> str:
+        if topic in ("commands", "config"):
+            return f"{topic}/{self.client_id}"
+        return topic
+
     def _setup_auth(self):
         self._client.tls_set(
             ca_certs=self.ca_certs,
