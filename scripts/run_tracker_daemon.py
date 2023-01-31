@@ -131,7 +131,7 @@ def main():
         tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
         if poweroff_on_exit:
-            subprocess.call(['sudo', 'poweroff'])
+            subprocess.run('poweroff')
 
 
 if __name__ == "__main__":
