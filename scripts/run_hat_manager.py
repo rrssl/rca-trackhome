@@ -1,10 +1,34 @@
+"""Routine that manages the HAT."""
+from argparse import ArgumentParser
 from multiprocessing.connection import Client, Listener
 
 from gpiozero import JamHat
 
+import track_publish
+from trkpy.dummy_hat import DummyHat
 
-def init_io():
-    hat = JamHat()
+
+def get_arg_parser():
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--config',
+        metavar='FILE',
+        required=True,
+        help="Path to the config file"
+    )
+    parser.add_argument(
+        '--dummy',
+        action='store_true',
+        help="Use a dummy HAT"
+    )
+    return parser
+
+
+def init_io(dummy: bool = False):
+    if dummy:
+        hat = DummyHat()
+    else:
+        hat = JamHat()
     # Lights on the first row are all managed by the tracker daemon, which
     # should be spawned after the HAT manager.
     hat.lights_1.off()
@@ -30,10 +54,12 @@ def set_buttons_callback(hat: JamHat, dest_address: tuple[str, int]):
 
 
 def main():
+    track_publish.get_arg_parser = get_arg_parser
+    conf = track_publish.get_config()
     address_out = ("localhost", 8888)
     address_in = ("localhost", 8889)
     with Listener(address_out) as listener:
-        hat = init_io()
+        hat = init_io(dummy=conf['dummy'])
         running = True
         while running:
             with listener.accept() as conn:

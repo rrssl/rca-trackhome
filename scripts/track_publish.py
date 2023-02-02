@@ -1,4 +1,4 @@
-"""Main script used to track location and publish to the cloud."""
+"""Routine to track location and publish to the cloud."""
 import json
 import logging
 import time
@@ -32,6 +32,8 @@ class Tracker:
       Timeout parameter given to the tracking interface.
     wait_time : float
       Wait time between each tag positioning call.
+    dummy : bool, optional
+      Whether to use a dummy tracker (default: False).
 
     """
 
@@ -44,6 +46,7 @@ class Tracker:
         check_period: int,
         timeout: float,
         wait_time: float,
+        dummy: bool = False,
         **kwargs
     ):
         self.logger = logger
@@ -54,7 +57,7 @@ class Tracker:
         self.wait_time = wait_time
 
         # Init the interface.
-        self.interface = track.init_master(timeout=timeout)
+        self.interface = track.init_master(timeout=timeout, _dummy=dummy)
         # Init the devices.
         self.tags = set()
         self.anchors = dict()
@@ -188,6 +191,11 @@ def get_arg_parser():
         required=True,
         help="Name of the profile"
     )
+    parser.add_argument(
+        '--dummy',
+        action='store_true',
+        help="Use a dummy RTLS"
+    )
     return parser
 
 
@@ -257,7 +265,12 @@ def init_logger(
 def init_tracker(cloud_logger, conf: dict) -> Tracker:
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
-    tracker = Tracker(profile_path, cloud_logger, **conf['tracking'])
+    tracker = Tracker(
+        profile_path,
+        cloud_logger,
+        dummy=conf['dummy'],
+        **conf['tracking']
+    )
     return tracker
 
 
