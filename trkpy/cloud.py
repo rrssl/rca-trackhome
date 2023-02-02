@@ -56,8 +56,8 @@ class CloudClient:
         return
 
     def disconnect(self):
+        self._client.disconnect()
         self._client.loop_stop()
-        return self._client.disconnect()
 
     def on_connect(
         self,
