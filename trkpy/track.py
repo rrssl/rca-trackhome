@@ -1,13 +1,95 @@
 """
 Functions to initialize and use the Pozyx tracker.
 """
+from collections import defaultdict
 from typing import Union
+
 import pypozyx as px
 from pypozyx.structures.device_information import DeviceDetails
 
 
-def init_master(timeout: float = .1):
+class DummyPozyxSerial:
+    """Simulates a master tag."""
+
+    def __init__(
+        self,
+        port,
+        baudrate=115200,
+        timeout=0.1,
+        write_timeout=0.1,
+        print_output=False,
+        debug_trace=False,
+        show_trace=False,
+        suppress_warnings=False
+    ):
+        self.tag2devices = defaultdict(list)
+
+    def doPositioning(
+        self,
+        position,
+        dimension=3,
+        height=0,
+        algorithm=None,
+        remote_id=None,
+        timeout=None
+    ):
+        position.x = 100
+        position.y = 200
+        if dimension == px.PozyxConstants.DIMENSION_2_5D:
+            position.z = height
+        elif dimension == px.PozyxConstants.DIMENSION_3D:
+            position.z = 300
+        return px.POZYX_SUCCESS
+
+    def addDevice(self, device_coordinates, remote_id=None):
+        self.tag2devices[remote_id].append(device_coordinates)
+        return px.POZYX_SUCCESS
+
+    def clearDevices(self, remote_id=None):
+        self.tag2devices[remote_id].clear()
+        return px.POZYX_SUCCESS
+
+    def getDeviceCoordinates(self, device_id, coordinates, remote_id=None):
+        for device_coordinates in self.tag2devices[remote_id]:
+            if device_coordinates.network_id == device_id:
+                coordinates.load(device_coordinates.pos.data)
+        return px.POZYX_SUCCESS
+
+    def getDeviceDetails(self, system_details, remote_id=None):
+        system_details.data[0] = 0x43
+        if remote_id in self.tag2devices:
+            system_details.data[3] = 0b111111
+        else:
+            system_details.data[3] = 0b110000
+        return px.POZYX_SUCCESS
+
+    def getDeviceIds(self, devices, remote_id=None):
+        for i, device_coordinates in enumerate(self.tag2devices[remote_id]):
+            devices.data[i] = device_coordinates.network_id
+        return px.POZYX_SUCCESS
+
+    def getDeviceListSize(self, device_list_size, remote_id=None):
+        device_list_size.value = len(self.tag2devices[remote_id])
+        return px.POZYX_SUCCESS
+
+    def getErrorCode(self, error_code, remote_id=None):
+        error_code.value = 0xFF
+        return px.POZYX_SUCCESS
+
+    def getErrorMessage(self, error_code):
+        return px.PozyxSerial.getErrorMessage(self, error_code)
+
+    def saveNetwork(self, remote_id=None):
+        return px.POZYX_SUCCESS
+
+    def setSelectionOfAnchors(self, mode, number_of_anchors, remote_id=None):
+        return px.POZYX_SUCCESS
+
+
+def init_master(timeout: float = .1, _dummy: bool = False):
     """Initialize the master tag."""
+    if _dummy:
+        return DummyPozyxSerial("", timeout=timeout, write_timeout=timeout)
     port = px.get_first_pozyx_serial_port()
     if port is None:
         raise OSError("No Pozyx connected. Check your USB cable or driver!")
