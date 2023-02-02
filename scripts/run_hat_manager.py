@@ -50,8 +50,22 @@ def main():
                         # Blink O2 for 3 seconds then exit the loop.
                         hat.lights_2.yellow.blink(.5, .5, 3, background=False)
                         break
-                    # Output signals
-                    # ...
+                    else:
+                        # Output signals
+                        led_name, state = msg
+                        led_board = {
+                            '1': hat.lights_1,
+                            '2': hat.lights_2
+                        }[led_name[1]]
+                        led = {
+                            'R': led_board.red,
+                            'O': led_board.yellow,
+                            'G': led_board.green
+                        }[led_name[0]]
+                        if state:
+                            led.on()
+                        else:
+                            led.off()
 
 
 if __name__ == "__main__":
