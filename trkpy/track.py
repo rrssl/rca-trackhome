@@ -1,11 +1,14 @@
 """
 Functions to initialize and use the Pozyx tracker.
 """
+import logging
 from collections import defaultdict
 from typing import Union
 
 import pypozyx as px
 from pypozyx.structures.device_information import DeviceDetails
+
+logger = logging.getLogger(__name__)
 
 
 class DummyPozyxSerial:
@@ -43,6 +46,9 @@ class DummyPozyxSerial:
 
     def addDevice(self, device_coordinates, remote_id=None):
         self.tag2devices[remote_id].append(device_coordinates)
+        network_id = get_network_name(device_coordinates.network_id)
+        remote_id = get_network_name(remote_id)
+        logger.debug(f"Device {network_id} added to tag {remote_id}")
         return px.POZYX_SUCCESS
 
     def clearDevices(self, remote_id=None):
@@ -80,6 +86,15 @@ class DummyPozyxSerial:
         return px.PozyxSerial.getErrorMessage(self, error_code)
 
     def saveNetwork(self, remote_id=None):
+        return px.POZYX_SUCCESS
+
+    def setLed(self, led_num, state, remote_id=None):
+        value = ["off", "on"][state]
+        remote_id = get_network_name(remote_id)
+        logger.debug(f"LED {led_num} of tag {remote_id} was turned {value}")
+        return px.POZYX_SUCCESS
+
+    def setLedConfig(self, config, remote_id=None):
         return px.POZYX_SUCCESS
 
     def setSelectionOfAnchors(self, mode, number_of_anchors, remote_id=None):
