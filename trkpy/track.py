@@ -26,6 +26,8 @@ class DummyPozyxSerial:
         suppress_warnings=False
     ):
         self.tag2devices = defaultdict(list)
+        self.pos_counter = 0
+        self.pos_error_every = 8
 
     def doPositioning(
         self,
@@ -36,6 +38,11 @@ class DummyPozyxSerial:
         remote_id=None,
         timeout=None
     ):
+        # Simulate a positioning error.
+        self.pos_counter += 1
+        if self.pos_counter % self.pos_error_every == 0:
+            return px.POZYX_FAILURE
+        # Return a fake position.
         position.x = 100
         position.y = 200
         if dimension == px.PozyxConstants.DIMENSION_2_5D:

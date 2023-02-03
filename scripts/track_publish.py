@@ -105,6 +105,10 @@ class Tracker:
         led_config = 0x0
         self.interface.setLedConfig(led_config, tag_id)
 
+    def has_tag_errors(self):
+        """Check if any tag returned an error in the latest loop."""
+        return bool(self._tags_to_reconfigure)
+
     def localize(self, device_id: int = None):
         """Localize the device."""
         t_now = time.time()

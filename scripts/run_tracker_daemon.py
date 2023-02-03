@@ -65,7 +65,9 @@ def run_track_loop(tracker, state, addr_out, conf, ppid):
             tracker.loop()
         else:
             tracker.loop(check_only=True)
+        has_err = tracker.has_tag_errors()
         with Client(addr_out) as hard_out:
+            hard_out.send(('R1', has_err))
             hard_out.send(('G1', False))
         t_elapsed = time.time() - t_start
         time.sleep(max(0, pos_period - t_elapsed))
