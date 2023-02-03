@@ -49,9 +49,9 @@ def run_track_loop(tracker, state, addr_out, conf, ppid):
         counter += 1
         # Reload config if applicable.
         if state['conf']:
-            state_conf = json.loads(state['conf'])
-            pos_period = state_conf['interval']
-            tracker.reload_conf(state_conf)
+            new_conf = json.loads(state['conf'])
+            pos_period = new_conf['interval']
+            tracker.reload_devices(new_conf)
             state['conf'] = None
             continue
         # Run the normal loop.

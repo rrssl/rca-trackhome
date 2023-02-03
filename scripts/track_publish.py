@@ -39,15 +39,14 @@ class Tracker:
 
     def __init__(
         self,
-        profile_path: str,
+        devices: dict,
         logger: logging.Logger,
         pos_dim: str,
         pos_algo: str,
         check_period: int,
         timeout: float,
         wait_time: float,
-        dummy: bool = False,
-        **kwargs
+        dummy: bool = False
     ):
         self.logger = logger
         self.pos_dim = pos_dim
@@ -62,9 +61,7 @@ class Tracker:
         self.tags = set()
         self.anchors = dict()
         self._tags_to_reconfigure = set()
-        with open(profile_path) as handle:
-            conf = json.load(handle)
-        self.reload_conf(conf)
+        self.reload_devices(devices)
 
     def check(self):
         """Check that all devices are currently connected."""
@@ -168,10 +165,10 @@ class Tracker:
                 f"{tag_str}: {coords}"
             )
 
-    def reload_conf(self, conf: dict):
-        self.tags = {t if t is None else int(t, 16) for t in conf['tags']}
+    def reload_devices(self, devices: dict):
+        self.tags = {t if t is None else int(t, 16) for t in devices['tags']}
         self.anchors = {
-            int(a, 16): tuple(xyz) for a, xyz in conf['anchors'].items()
+            int(a, 16): tuple(xyz) for a, xyz in devices['anchors'].items()
         }
         for tag in self.tags:
             self.configure_tag(tag)
@@ -263,13 +260,26 @@ def init_logger(
 
 
 def init_tracker(cloud_logger, conf: dict) -> Tracker:
+    # Load the profile.
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
+    with open(profile_path) as handle:
+        profile = json.load(handle)
+    devices = {'anchors': profile['anchors'], 'tags': profile['tags']}
+    # Override tracking config with profile options.
+    for key in conf['tracking']:
+        if key in profile:
+            conf['tracking'][key] = profile[key]
+    # Init tracker.
     tracker = Tracker(
-        profile_path,
+        devices,
         cloud_logger,
-        dummy=conf['dummy'],
-        **conf['tracking']
+        pos_dim=conf['tracking']['pos_dim'],
+        pos_algo=conf['tracking']['pos_algo'],
+        check_period=conf['tracking']['check_period'],
+        timeout=conf['tracking']['timeout'],
+        wait_time=conf['tracking']['wait_time'],
+        dummy=conf['dummy']
     )
     return tracker
 
