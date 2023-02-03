@@ -3,8 +3,9 @@
 Usage: python update_daemon_led.py path/to/config.yml
 """
 import sys
+from multiprocessing.connection import Client
+
 import yaml
-from gpiozero import JamHat
 
 from trkpy.system import lock_file
 
@@ -14,14 +15,14 @@ def main():
     with open(conf_path, 'r') as handle:
         conf = yaml.safe_load(handle)
     lock_path = conf['daemon']['lock_file']
-    hat = JamHat()
-    led = hat.lights_2.red
+    address = ('localhost', 8888)
+    led = 'R2'
     if lock_file(lock_path):
-        if not led.is_lit:
-            led.on()
+        with Client(address) as conn:
+            conn.send((led, True))
     else:
-        if led.is_lit:
-            led.off()
+        with Client(address) as conn:
+            conn.send((led, False))
 
 
 if __name__ == "__main__":

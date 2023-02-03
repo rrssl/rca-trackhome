@@ -2,20 +2,20 @@
 
 Usage: python update_online_led.py
 """
-from gpiozero import JamHat
+from multiprocessing.connection import Client
 
 from trkpy.system import is_online
 
 
 def main():
-    hat = JamHat()
-    led = hat.lights_2.green
+    address = ('localhost', 8888)
+    led = 'G2'
     if is_online():
-        if not led.is_lit:
-            led.on()
+        with Client(address) as conn:
+            conn.send((led, True))
     else:
-        if led.is_lit:
-            led.off()
+        with Client(address) as conn:
+            conn.send((led, False))
 
 
 if __name__ == "__main__":
