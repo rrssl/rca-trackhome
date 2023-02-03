@@ -120,17 +120,15 @@ def main():
     # Start the event loop.
     update_state("STOP", state, address_out)  # tracking starts paused
     tracker.logger.debug(f"Ready ({pid=}).")
-    poweroff_on_exit = True
     try:
         run_track_loop(tracker, state, address_out, conf, pid)
     except KeyboardInterrupt:
-        poweroff_on_exit = False
         update_state("POWEROFF", state, address_out)
     finally:
         hard_in_thread.join()
         tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
-        if poweroff_on_exit:
+        if conf['daemon']['poweroff_on_exit']:
             subprocess.run('poweroff')
 
 

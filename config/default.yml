@@ -26,6 +26,7 @@ cloud:
 daemon:
   lock_file: /tmp/tracker_daemon.lock
   log_period: 60
+  poweroff_on_exit: false
 
 hat:
   address_in: ['localhost', 8888]
