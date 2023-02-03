@@ -1,3 +1,4 @@
+import time
 from threading import Thread
 
 
@@ -8,8 +9,15 @@ class DummyLED:
     def __repr__(self):
         return self.name
 
-    def blink(self, *args):
-        print(f"{self} BLINK")
+    def blink(self, on_time=1, off_time=1, n=None, background=True):
+        if background:
+            print(f"{self} BLINK")
+        else:
+            for _ in range(n):
+                self.on()
+                time.sleep(on_time)
+                self.off()
+                time.sleep(off_time)
 
     def off(self):
         print(f"{self} OFF")
