@@ -27,6 +27,10 @@ daemon:
   lock_file: /tmp/tracker_daemon.lock
   log_period: 60
 
+hat:
+  address_in: ['localhost', 8888]
+  address_out: ['localhost', 8889]
+
 pull:
   service_account_json:
 

@@ -56,8 +56,8 @@ def set_buttons_callback(hat: JamHat, dest_address: tuple[str, int]):
 def main():
     track_publish.get_arg_parser = get_arg_parser
     conf = track_publish.get_config()
-    address_out = ("localhost", 8888)
-    address_in = ("localhost", 8889)
+    address_out = tuple(conf['hat']['address_out'])
+    address_in = tuple(conf['hat']['address_in'])
     with Listener(address_out) as listener:
         hat = init_io(dummy=conf['dummy'])
         running = True

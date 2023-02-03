@@ -27,12 +27,12 @@ def get_cloud_callback(state, addr_out):
     return callback
 
 
-def run_hard_in(src_address, state, addr_out):
-    with Listener(src_address) as listener:
+def run_hard_in(addr_in, state, addr_out):
+    with Listener(addr_in) as hard_in:
         # The Listener is bound to the address, so clients can connect.
         with Client(addr_out) as hard_out:
             hard_out.send("LISTENING")
-        with listener.accept() as conn:  # blocking
+        with hard_in.accept() as conn:  # blocking
             while state['on']:
                 cmd = conn.recv()  # blocking
                 update_state(cmd, state, addr_out)
@@ -100,8 +100,8 @@ def main():
     # Init state dict (will update according to commands).
     state = {'on': True, 'run': False, 'conf': None}
     # Init hardware input connection.
-    address_out = ("localhost", 8888)
-    address_in = ("localhost", 8889)
+    address_out = tuple(conf['hat']['address_out'])
+    address_in = tuple(conf['hat']['address_in'])
     hard_in_thread = Thread(
         target=run_hard_in,
         args=(address_in, state, address_out),

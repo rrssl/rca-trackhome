@@ -15,13 +15,13 @@ def main():
     with open(conf_path, 'r') as handle:
         conf = yaml.safe_load(handle)
     lock_path = conf['daemon']['lock_file']
-    address = ('localhost', 8888)
+    address_out = tuple(conf['hat']['address_out'])
     led = 'R2'
     if lock_file(lock_path):
-        with Client(address) as conn:
+        with Client(address_out) as conn:
             conn.send((led, True))
     else:
-        with Client(address) as conn:
+        with Client(address_out) as conn:
             conn.send((led, False))
 
 
