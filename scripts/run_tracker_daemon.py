@@ -34,7 +34,10 @@ def run_hard_in(addr_in, state, addr_out):
             hard_out.send("LISTENING")
         with hard_in.accept() as conn:  # blocking
             while state['on']:
-                cmd = conn.recv()  # blocking
+                try:
+                    cmd = conn.recv()  # blocking
+                except EOFError:
+                    break
                 update_state(cmd, state, addr_out)
 
 

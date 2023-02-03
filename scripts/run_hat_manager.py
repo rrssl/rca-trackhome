@@ -1,6 +1,6 @@
 """Routine that manages the HAT."""
 from argparse import ArgumentParser
-from multiprocessing.connection import Client, Listener
+from multiprocessing.connection import Client, Connection, Listener
 
 from gpiozero import JamHat
 
@@ -39,15 +39,12 @@ def init_io(dummy: bool = False):
     return hat
 
 
-def set_buttons_callback(hat: JamHat, dest_address: tuple[str, int]):
-    conn = Client(dest_address)
-
+def set_buttons_callback(hat: JamHat, hard_in: Connection):
     def b1_cb():
-        conn.send("TOGGLE")
+        hard_in.send("TOGGLE")
 
     def b2_cb():
-        conn.send("POWEROFF")
-        conn.close()
+        hard_in.send("POWEROFF")
 
     hat.button_1.when_released = b1_cb
     hat.button_2.when_held = b2_cb
@@ -62,18 +59,20 @@ def main():
         hat = init_io(dummy=conf['dummy'])
         running = True
         while running:
-            with listener.accept() as conn:
+            with listener.accept() as hard_out:
                 while True:
                     try:
-                        msg = conn.recv()
+                        msg = hard_out.recv()
                     except EOFError:
                         break
                     # System messages
                     if msg == "LISTENING":
-                        set_buttons_callback(hat, address_in)
+                        hard_in = Client(address_in)
+                        set_buttons_callback(hat, hard_in)
                     elif msg == "POWEROFF":
                         running = False
-                        # Blink O2 for 3 seconds then exit the loop.
+                        hard_in.close()
+                        # Blink O2 for 3 blocking seconds then exit the loop.
                         hat.lights_2.yellow.blink(.5, .5, 3, background=False)
                         break
                     else:
