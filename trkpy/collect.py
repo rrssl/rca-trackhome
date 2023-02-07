@@ -26,7 +26,7 @@ class CloudCollector:
         flush_dir: Path,
     ):
         self._subscriptions = subscriptions
-        self._dtypes = {sub: dt for sub, dt in zip(subscriptions, dtypes)}
+        self._dtypes = dict(zip(subscriptions, dtypes))
         self.flush_dir = flush_dir
         self._sub_buffers = {sub: [] for sub in subscriptions}
 
@@ -36,14 +36,24 @@ class CloudCollector:
 
     def on_message(self, unused_client, unused_userdata, message):
         """Callback when the device receives a message on a subscription."""
-        rectime = datetime.now(timezone.utc)
         dtype = self._dtypes[message.topic]
         if dtype == 'json':
-            data = json.loads(message.payload)
+            msg_content = json.loads(message.payload)
         else:
-            data = str(message.payload.decode('utf-8'))
-        logger.debug(data)
-        self._sub_buffers[message.topic].append((data, rectime))
+            msg_content = str(message.payload.decode('utf-8'))
+        try:
+            props = dict(message.properties.UserProperty)
+        except AttributeError:
+            props = {}
+        try:
+            msg_time = datetime.fromisoformat(props['timestamp'])
+        except (KeyError, ValueError):
+            msg_time = datetime.now(timezone.utc)
+        msg_sender = props.get('client_id')
+        logger.debug((msg_content, msg_time, msg_sender))
+        self._sub_buffers[message.topic].append(
+            (msg_content, msg_time, msg_sender)
+        )
 
     def flush(self, older_than: datetime = None):
         for sub, buffer in self._sub_buffers.items():
@@ -53,8 +63,8 @@ class CloudCollector:
                 try:
                     # Find the first element more recent than `older_than`.
                     split = next(
-                        i for i, (_, rectime) in enumerate(buffer)
-                        if rectime > older_than
+                        i for i, (_, msg_time, _) in enumerate(buffer)
+                        if msg_time > older_than
                     )
                 except StopIteration:
                     # Nothing in the buffer is more recent than `older_than`.
@@ -68,12 +78,15 @@ class CloudCollector:
             self._sub_buffers[sub] = buffer[split:]
             # Format the data for flushing to CSV.
             rows = []
-            for data, rectime in to_flush:
-                row = {'rectime': rectime.timestamp()}
-                if isinstance(data, dict):
-                    row.update(data)
+            for msg_content, msg_time, msg_sender in to_flush:
+                row = {
+                    'msg_sender': msg_sender,
+                    'msg_time': msg_time.timestamp()
+                }
+                if isinstance(msg_content, dict):
+                    row.update(msg_content)
                 else:
-                    row['message'] = data
+                    row['message'] = msg_content
                 rows.append(row)
             # Write the CSV file.
             flush_path = self.flush_dir / f"{sub}.csv"

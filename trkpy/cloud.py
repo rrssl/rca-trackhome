@@ -122,9 +122,7 @@ class CloudClient:
         """Publish to the MQTT topic (QoS=1)."""
         self._update_auth()
         props = mqtt.Properties(PacketTypes.PUBLISH)
-        now_str = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S.%f %Z"
-        )
+        now_str = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
         props.UserProperty = [
             ('client_id', self.client_id),
             ('timestamp', now_str)
