@@ -87,10 +87,11 @@ class CloudClient:
         properties
     ):
         """Callback for when a device disconnects."""
-        # For some reason reasonCode does not come as a ReasonCode (bug?).
-        reasonCode = mqtt.ReasonCodes(
-            PacketTypes.DISCONNECT, identifier=reasonCode
-        )
+        # There is a bug in paho.mqtt where the reasonCode passed to
+        # on_disconnect is an internal error code, even when using MQTTv5.
+        # See https://github.com/eclipse/paho.mqtt.python/issues/659
+        if not isinstance(reasonCode, mqtt.ReasonCodes):
+            reasonCode = mqtt.error_string(reasonCode)
         logger.debug(f"Disconnection outcome: {reasonCode}")
         self.connected = False
 

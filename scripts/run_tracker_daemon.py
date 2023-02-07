@@ -11,7 +11,7 @@ from trkpy.cloud import AWSClient
 from trkpy.system import is_online, lock_file
 
 
-def check_already_running(conf: dict):
+def is_already_running(conf: dict):
     """Detect if an an instance with the label is already running, globally
     at the operating system level.
     """
@@ -95,17 +95,19 @@ def update_state(cmd, state, addr_out):
 def main():
     """Entry point"""
     conf = track_publish.get_config()
-    # Exit if the daemon is already running.
-    pid = os.getpid()
-    if check_already_running(conf):
-        print(f"Process {pid} ending.")
+    # Exit if a daemon is already running or if there is no network connection.
+    if is_already_running(conf) or not is_online():
         return
-    while not is_online():
-        time.sleep(3)
-    # Init state dict (will update according to commands).
+    # Init state dict (will update according to remote/local commands).
     state = {'on': True, 'run': False, 'conf': None}
-    # Init hardware input connection.
+    # Init hardware connection.
     address_out = tuple(conf['hat']['address_out'])
+    try:
+        with Client(address_out):
+            pass
+    except ConnectionRefusedError:
+        # Exit if the hardware server is not listening.
+        return
     address_in = tuple(conf['hat']['address_in'])
     hard_in_thread = Thread(
         target=run_hard_in,
@@ -121,9 +123,15 @@ def main():
     while not client.connected:
         time.sleep(1)
     # Init tracker.
-    tracker = track_publish.init_tracker(logger, conf)
+    try:
+        tracker = track_publish.init_tracker(logger, conf)
+    except OSError:
+        # Exit if there is no Pozyx connected.
+        client.disconnect()
+        return
     # Start the event loop.
     update_state("STOP", state, address_out)  # tracking starts paused
+    pid = os.getpid()
     tracker.logger.debug(f"Ready ({pid=}).")
     try:
         run_track_loop(tracker, state, address_out, conf, pid)
@@ -134,7 +142,7 @@ def main():
         tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
         if conf['daemon']['poweroff_on_exit']:
-            subprocess.run('poweroff')
+            subprocess.run('/usr/sbin/poweroff')
 
 
 if __name__ == "__main__":

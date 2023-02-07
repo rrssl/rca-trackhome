@@ -163,6 +163,9 @@ class Tracker:
     def log_anchor_config(self, tag_id: int):
         anchors = track.get_anchors_config(self.interface, tag_id)
         tag_str = track.get_network_name(tag_id)
+        if not anchors:
+            self.logger.debug(f"Tag {tag_str} has no anchors configured")
+            return
         for anchor, coords in anchors.items():
             self.logger.debug(
                 f"Anchor {track.get_network_name(anchor)} configured on tag "

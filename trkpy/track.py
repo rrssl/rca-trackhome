@@ -180,6 +180,8 @@ def get_anchors_config(
     """
     list_size = px.SingleRegister()
     master.getDeviceListSize(list_size, remote_id)
+    if list_size[0] == 0:
+        return {}
     device_list = px.DeviceList(list_size=list_size[0])
     master.getDeviceIds(device_list, remote_id)
     anchors = {}
