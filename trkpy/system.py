@@ -3,6 +3,9 @@ import os
 import socket
 from pathlib import Path
 
+from dbus_next import BusType
+from dbus_next.aio import MessageBus
+
 
 def is_online(host: str = "8.8.8.8", port: int = 53, timeout: int = 3) -> bool:
     """Check if the system has a working internet connection.
@@ -38,3 +41,18 @@ def lock_file(path: Path) -> bool:
         return True
     except IOError:
         return False
+
+
+async def poweroff():
+    """Power off the system using systemd's D-Bus interface.
+
+    This is an async function so it needs to be called with asyncio.run()"""
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    bus_name = "org.freedesktop.login1"
+    path = "/org/freedesktop/login1"
+    iface = "org.freedesktop.login1.Manager"
+    introspection = await bus.introspect(bus_name, path)
+    proxy_object = bus.get_proxy_object(bus_name, path, introspection)
+    interface = proxy_object.get_interface(iface)
+    if await interface.call_can_power_off() == 'yes':
+        await interface.call_power_off(False)

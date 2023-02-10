@@ -1,14 +1,14 @@
 """This scripts allows to remotely start/stop tracking and poweroff."""
+import asyncio
 import json
 import os
-import subprocess
 import time
 from multiprocessing.connection import Client, Listener
 from threading import Thread
 
 import track_publish
 from trkpy.cloud import AWSClient
-from trkpy.system import is_online, lock_file
+from trkpy.system import is_online, lock_file, poweroff
 
 
 def is_already_running(conf: dict):
@@ -142,7 +142,7 @@ def main():
         tracker.logger.debug(f"Exiting ({pid=}).")
         client.disconnect()
         if conf['daemon']['poweroff_on_exit']:
-            subprocess.run('/usr/sbin/poweroff')
+            asyncio.run(poweroff())
 
 
 if __name__ == "__main__":
