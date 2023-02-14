@@ -17,12 +17,12 @@ def main():
     lock_path = conf['daemon']['lock_file']
     address_out = tuple(conf['hat']['address_out'])
     led = 'R2'
-    if lock_file(lock_path):
+    not_running = lock_file(lock_path)
+    try:
         with Client(address_out) as conn:
-            conn.send((led, True))
-    else:
-        with Client(address_out) as conn:
-            conn.send((led, False))
+            conn.send((led, not_running))
+    except ConnectionRefusedError:
+        return
 
 
 if __name__ == "__main__":

@@ -16,12 +16,12 @@ def main():
         conf = yaml.safe_load(handle)
     address_out = tuple(conf['hat']['address_out'])
     led = 'G2'
-    if is_online():
+    online = is_online()
+    try:
         with Client(address_out) as conn:
-            conn.send((led, True))
-    else:
-        with Client(address_out) as conn:
-            conn.send((led, False))
+            conn.send((led, online))
+    except ConnectionRefusedError:
+        return
 
 
 if __name__ == "__main__":

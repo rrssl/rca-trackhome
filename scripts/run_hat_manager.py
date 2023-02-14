@@ -90,7 +90,7 @@ def main():
     conf = track_publish.get_config()
     try:
         with Listener(tuple(conf['hat']['address_out'])) as listener:
-            run_event_loop(listener)
+            run_event_loop(listener, conf)
     except OSError:
         # Another HAT manager is already listening.
         return
