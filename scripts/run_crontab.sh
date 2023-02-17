@@ -20,7 +20,7 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 work_dir=$(dirname -- "$0")
-out_dir="$work_dir/../output"
+out_dir="$work_dir/../../output"
 conf_dir="$work_dir/../config"
 # conda run -n hups python "$work_dir/check_poweroff.py" >> "$out_dir/check_poweroff.log" 2>&1
 # Start and background the HAT first.

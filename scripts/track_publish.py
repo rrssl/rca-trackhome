@@ -225,6 +225,8 @@ def get_config():
     # Process authentication file paths.
     auth_dir = conf['global']['auth_dir']
     for provider, cloud_conf in conf['cloud'].items():
+        if not (auth_dir / provider).exists():
+            continue
         cloud_conf['ca_certs'] = auth_dir / provider / cloud_conf['ca_certs']
         cloud_conf['device_private_key'] = (
             auth_dir / provider / cloud_conf['device_private_key']
