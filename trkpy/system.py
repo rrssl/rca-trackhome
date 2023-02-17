@@ -1,10 +1,18 @@
 import fcntl
 import os
 import socket
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 from dbus_next import BusType
 from dbus_next.aio import MessageBus
+
+
+def excepthook(type, value, tb):
+    """Custom traceback function that adds a timestamp."""
+    print(f"[{datetime.now()}]")
+    traceback.print_exception(type, value, tb)
 
 
 def is_online(host: str = "8.8.8.8", port: int = 53, timeout: int = 3) -> bool:

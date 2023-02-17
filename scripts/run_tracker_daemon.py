@@ -2,13 +2,14 @@
 import asyncio
 import json
 import os
+import sys
 import time
 from multiprocessing.connection import Client, Listener
 from threading import Thread
 
 import track_publish
 from trkpy.cloud import AWSClient
-from trkpy.system import is_online, lock_file, poweroff
+from trkpy.system import excepthook, is_online, lock_file, poweroff
 
 
 def is_already_running(conf: dict):
@@ -94,6 +95,7 @@ def update_state(cmd, state, addr_out):
 
 def main():
     """Entry point"""
+    sys.excepthook = excepthook
     conf = track_publish.get_config()
     # Exit if a daemon is already running or if there is no network connection.
     if is_already_running(conf) or not is_online():
