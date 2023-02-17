@@ -19,4 +19,5 @@ dependencies:
     - open3d
     - paho-mqtt
     - pypozyx
+    - RPi.GPIO
 prefix: /home/robin/miniconda3/envs/hups
