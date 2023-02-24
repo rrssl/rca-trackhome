@@ -38,44 +38,54 @@ from scipy import stats
 # +
 ACONF = {
     'path': "../config/local.yml",
-    'place': "sportsman",
-    'device': "rpi1",
     'figsize': (6, 6),
     'replay_timestep': .1,
-    'track_id': "0x7625",
-    'display': {
-        'x': 2300,
-        'y': 2550,
-        'scale': 9500,
-        'rotation': 0
-    }
-}
+} | [
+    {
+        'place': "sportsman",
+        'profile': "tracking/both/lower.json",
+        'experiment': "tracking/both/test1",
+        'floorplan': "floorplan/lower/furniture.png",
+        'device': "rpi1",
+        'tag_id': "0x7625",
+        # floorplan display params: (2380, 3550, 7411)
+    },
+    {
+        'place': "sportsman",
+        'profile': "tracking/both/upper.json",
+        'experiment': "tracking/both/test1",
+        'floorplan': "floorplan/upper/furniture.png",
+        'device': "rpi2",
+        'tag_id': "0x6812",
+        # floorplan display params: (2260, 2500, 9441)
+    },
+][1]
 
 with open(ACONF['path'], 'r') as handle:
     conf = yaml.safe_load(handle)
 conf |= ACONF
 
 data_dir = Path(conf['global']['data_dir']) / conf['place']
-profile_path = data_dir / "profile.json"
+profile_path = data_dir / conf['profile']
 with open(profile_path, 'r') as handle:
     profile = json.load(handle)
 display(profile)
 anchors = profile['anchors']
-recording_path = data_dir / "tracking" / "location.csv"
-errors_path = data_dir / "tracking" / "error.csv"
-floorplan_path = data_dir / "floorplan" / "furniture.png"
+recording_path = data_dir / conf['experiment'] / "location.csv"
+errors_path = data_dir / conf['experiment'] / "error.csv"
+floorplan_path = data_dir / conf['floorplan']
 # -
 
 # ## Load data
 
 data = pd.read_csv(recording_path)
-data = data[(data['device'] == conf['device']) & (data['i'] == conf['track_id'])]
+data = data[(data['msg_sender'] == conf['device']) & (data['i'] == conf['tag_id'])]
 timestamps = pd.to_datetime(data['t'], unit='ms', utc=True).dt.tz_convert("Europe/London")
 data = data.set_index(timestamps)
 data = data.sort_index()
 data = data.drop(data[(data['x'] == 0) & (data['y'] == 0)].index)
 data = data.loc[~((data['x'].shift(-1) == data['x']) & (data['y'].shift(-1) == data['y']))]
-data = data[(data.index.month == 8) & (data.index.day == 15)]
+# data = data[(data.index.month == 8) & (data.index.day == 15)]
 # data = data.between_time('10:00', '11:00')
 data
 
@@ -83,17 +93,40 @@ data
 # data[data.index.to_series().diff().dt.seconds > 2.0]
 # -
 
+# ## Align the floorplan
+
+# +
 floorplan_img = Image.open(floorplan_path)
-if conf['display']['rotation']:
-    floorplan_img = floorplan_img.rotate(conf['display']['rotation'], expand=True)
-aspect = floorplan_img.width / floorplan_img.height
-scale = conf['display']['scale']
-shift = np.array([conf['display']['x'], conf['display']['y']]).reshape(2, 1)
-extent = np.array([[-aspect, aspect], [-1, 1]]) / 2 * scale + shift
+# floorplan_img = floorplan_img.rotate(conf['display']['rotation'], expand=True)
+
+fig, ax = plt.subplots(figsize=conf['figsize'])
+ax.set_axis_off()
+floorplan_display = ax.imshow(
+    np.asarray(floorplan_img),
+    # extent=extent.ravel(),
+    zorder=2
+)
+ax.scatter(*zip(*[xyz[:2] for xyz in anchors.values()]), marker='s', zorder=3)
+for name, xyz in anchors.items():
+    ax.annotate(name, xyz[:2], xytext=(5, 5), textcoords='offset pixels',
+                path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+ax.set_aspect('equal')
+fig.tight_layout()
+
+@widgets.interact(x=(0, 5000, 10), y=(0, 5000, 10), s=(1, 10000, 10))
+def update_floorplan(x, y, s):
+    aspect = floorplan_img.width / floorplan_img.height
+    shift = np.array([[x], [y]])
+    extent = np.array([[-aspect, aspect], [-1, 1]]) / 2 * s + shift
+    floorplan_display.set_extent(extent.ravel())
+    fig.canvas.draw()
+
+
+# -
 
 # ## View the recording
 
-# +
+# + tags=[] jupyter={"source_hidden": true}
 slider = widgets.IntSlider(
     value=0,
     min=0,
@@ -128,13 +161,13 @@ widgets.jslink((play, 'value'), (slider, 'value'))
 
 controls = widgets.HBox([play, slider, slider_text])
 
-# +
+# + jupyter={"source_hidden": true} tags=[]
 fig, ax = plt.subplots(figsize=conf['figsize'])
 ax.set_axis_off()
 
 slider.observe(get_slider_change_callback(fig), names='value')
 
-ax.imshow(np.asarray(floorplan_img), extent=extent.ravel(), zorder=2)
+ax.imshow(np.asarray(floorplan_img), extent=floorplan_display.get_extent(), zorder=2)
 ax.scatter(*zip(*[xyz[:2] for xyz in anchors.values()]), marker='s', zorder=3)
 for name, xyz in anchors.items():
     ax.annotate(name, xyz[:2], xytext=(5, 5), textcoords='offset pixels',
@@ -178,11 +211,11 @@ ax.set_ylim([ymin-1000, ymax])
 plt.show()
 
 errors = pd.read_csv(errors_path)
-timestamps = pd.to_datetime(errors['pubtime'], unit='s', utc=True).dt.tz_convert("Europe/London")
+timestamps = pd.to_datetime(errors['msg_time'], unit='s', utc=True).dt.tz_convert("Europe/London")
 errors = errors.set_index(timestamps)
 errors = errors.sort_index()
-errors = errors[(errors.index.month == 8) & (errors.index.day == 15)]
-errors = errors.between_time('08:00', '23:00')
+# errors = errors[(errors.index.month == 8) & (errors.index.day == 15)]
+# errors = errors.between_time('08:00', '23:00')
 display(errors['message'].value_counts())
 
 # +
