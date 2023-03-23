@@ -10,6 +10,7 @@ import pandas as pd
 # import pandasgui
 import yaml
 from PIL import Image
+from tqdm import tqdm
 
 
 def get_arg_parser():
@@ -202,17 +203,15 @@ def main():
     fig.tight_layout()
     updater = get_plot_updater(tag_plots, record, time_plot)
     ani = ma.FuncAnimation(fig, updater, frames=frames)
-    plt.show()
+    # plt.show()
+    bar = tqdm(total=len(frames))
     # metadata = dict(title='Movie Test', artist='Matplotlib',
     #                 comment='a red circle following a blue sine wave')
-    # writer = FFMpegWriter(fps=15, metadata=metadata)
-    # # Generate the frames.
-    # with writer.saving(fig, "writer_test.mp4", dpi=100):
-    #     for i in range(10):
-    #         pos_plot.set_offsets(data[['x', 'y']].iloc[i])
-    #         pos_line_plot.set_data(data['x'].iloc[:i+1], data['y'].iloc[:i+1])
-    #         # slider_text.value = data.index[i].strftime('%H:%M:%S')
-    #         writer.grab_frame()
+    ani.save(
+        "test.mp4",
+        writer='ffmpeg',
+        progress_callback=lambda i, n: bar.update()
+    )
 
 
 if __name__ == "__main__":
