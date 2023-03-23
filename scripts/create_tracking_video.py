@@ -7,6 +7,7 @@ import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+# import pandasgui
 import yaml
 from PIL import Image
 
@@ -69,6 +70,21 @@ def get_config():
     return conf
 
 
+def get_plot_updater(tag_plots, record, time_plot):
+    def update(frame):
+        time_plot.set_text(frame)
+        for tag, tag_plot in tag_plots.items():
+            try:
+                row = record.loc[(frame, tag)]
+            except KeyError:
+                tag_plot.set_alpha(.2)
+                continue
+            tag_plot.set_offsets(row[['x', 'y']])
+            tag_plot.set_alpha(.8)
+        # line_plot.set_data(data['x'].iloc[:fid+1], data['y'].iloc[:fid+1])
+    return update
+
+
 def main():
     conf = get_config()
     data_dir = conf['global']['data_dir'] / conf['place']
@@ -100,12 +116,26 @@ def main():
         pd.to_datetime(
             record['t'], unit='ms', utc=True
         ).dt.tz_convert("Europe/London")
-    ).sort_index()
-    record = record.drop(record[(record['x'] == 0) & (record['y'] == 0)].index)
-    record = record.drop(record[
-        (record['x'].shift(-1) == record['x'])
-        & (record['y'].shift(-1) == record['y'])
-    ].index)
+    )
+    record = record.drop(  # remove points at (0, 0)
+        record[(record['x'] == 0) & (record['y'] == 0)].index
+    )
+    tags_record = {}
+    for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
+        # Remove consecutive duplicates.
+        tag_record = tag_record.sort_index()
+        tag_record = tag_record.drop(tag_record[
+            (tag_record['x'].shift(1) == tag_record['x'])
+            & (tag_record['y'].shift(1) == tag_record['y'])
+        ].index)
+        # Resample to the framerate.
+        tag_record = tag_record[['x', 'y', 'z']].resample('T').mean().dropna()
+        tag_record['i'] = tag
+        tags_record[tag] = tag_record
+    record = pd.concat(
+        tags_record.values()
+    ).set_index('i', append=True).sort_index()
+    # pandasgui.show(record)
     # Assign locations to a floor.
     floor_maxima = {
         floor: max(profile['anchors'][fa][2] for fa in floor_anchors)
@@ -121,13 +151,12 @@ def main():
     record['y'] = anchors_3d[:, 1].max() - record['y']  # swap y axis
     record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
     record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
-    # TODO Resample the coordinates to the framerate.
     # Define the points' colors.
     colormap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
-    record['c'] = record['i'].map(colormap)
+    record['c'] = record.index.get_level_values('i').map(colormap)
     # Create the first frame.
     plt.rcParams['figure.facecolor'] = 'black'
-    fig, ax = plt.subplots()  # figsize=conf['figsize'])
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
     ax.set_axis_off()
     ax.imshow(np.asarray(floorplan_img), zorder=2)
     ax.scatter(*anchors_2d.T, marker='s', s=10, zorder=3)
@@ -135,23 +164,32 @@ def main():
         ax.annotate(name, xy, xytext=(5, 5), textcoords='offset pixels',
                     path_effects=[pe.withStroke(linewidth=2, foreground='w')],
                     fontsize=4)
-    bg_plot = ax.scatter(
-        record['x'],
-        record['y'],
-        c=record['c'],
-        alpha=.2,
-        edgecolor='none',
-        s=25,
-        zorder=5
-    )
-    plt.show()
-    # pos_plot = ax.scatter(
-    #     data['x'].iloc[0],
-    #     data['y'].iloc[0],
-    #     c='tab:red',
-    #     s=50,
+    # bg_plot = ax.scatter(
+    #     record['x'],
+    #     record['y'],
+    #     c=record['c'],
+    #     alpha=.2,
+    #     edgecolor='none',
+    #     s=25,
     #     zorder=5
     # )
+    frames = pd.date_range(
+        record.index[0][0],
+        record.index[-1][0],
+        freq='T'
+    )
+    tag_plots = {
+        tag: ax.scatter(
+            record.loc[(frames[0], tag), 'x'],
+            record.loc[(frames[0], tag), 'y'],
+            c=record.loc[(frames[0], tag), 'c'],
+            alpha=.8,
+            edgecolor='none',
+            s=50,
+            zorder=5
+        )
+        for tag in profile['tags']
+    }
     # pos_line_plot, = ax.plot(
     #     data['x'],
     #     data['y'],
@@ -160,8 +198,11 @@ def main():
     #     lw=1,
     #     zorder=4
     # )
-    # # Initialise the video.
-    # FFMpegWriter = ma.writers['ffmpeg']
+    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='axes fraction')
+    fig.tight_layout()
+    updater = get_plot_updater(tag_plots, record, time_plot)
+    ani = ma.FuncAnimation(fig, updater, frames=frames)
+    plt.show()
     # metadata = dict(title='Movie Test', artist='Matplotlib',
     #                 comment='a red circle following a blue sine wave')
     # writer = FFMpegWriter(fps=15, metadata=metadata)
