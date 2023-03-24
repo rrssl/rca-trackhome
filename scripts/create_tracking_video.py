@@ -27,6 +27,18 @@ def get_arg_parser():
         help="Path of the profile in the data dir"
     )
     parser.add_argument(
+        '--speed',
+        required=True,
+        type=int,
+        help="Seconds of recording per second of video"
+    )
+    parser.add_argument(
+        '--fps',
+        required=True,
+        type=int,
+        help="Frames per second of the video (independent of the replay speed)"
+    )
+    parser.add_argument(
         '--video',
         help="Path of the video in the output dir; if omitted, just play"
     )
@@ -65,7 +77,7 @@ def get_config():
     return conf
 
 
-def get_plot_updater(tag_plots, record, time_plot, bg_plot):
+def get_plot_updater(tag_plots, record, time_plot, trace_plot):
     def update(frame):
         time_plot.set_text(frame)
         for tag, tag_plot in tag_plots.items():
@@ -76,10 +88,10 @@ def get_plot_updater(tag_plots, record, time_plot, bg_plot):
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
             tag_plot.set_alpha(.8)
-        if bg_plot is not None:
+        if trace_plot is not None:
             trace = record.loc[:frame]
-            bg_plot.set_offsets(trace[['x', 'y']])
-            bg_plot.set_facecolor(trace['c'])
+            trace_plot.set_offsets(trace[['x', 'y']])
+            trace_plot.set_facecolor(trace['c'])
         # line_plot.set_data(data['x'].iloc[:fid+1], data['y'].iloc[:fid+1])
     return update
 
@@ -119,7 +131,9 @@ def main():
     record = record.drop(  # remove points at (0, 0)
         record[(record['x'] == 0) & (record['y'] == 0)].index
     )
-    tags_record = {}
+    tags_record = []
+    target_period = conf['speed'] // conf['fps']
+    assert 1 <= target_period <= 60, "Speed must be between 1 and 60 x FPS"
     for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
         # Remove consecutive duplicates.
         tag_record = tag_record.sort_index()
@@ -127,12 +141,20 @@ def main():
             (tag_record['x'].shift(1) == tag_record['x'])
             & (tag_record['y'].shift(1) == tag_record['y'])
         ].index)
-        # Resample to the framerate.
+        # First downsample to remove some of the noise.
         tag_record = tag_record[['x', 'y', 'z']].resample('T').mean().dropna()
+        # Then upsample to match the target speed given the framerate.
+        interp_limit = 60//target_period - 1  # can't go past downsample period
+        if interp_limit < 1:
+            interp_limit = None
+        tag_record = tag_record[['x', 'y', 'z']].resample(
+            f'{target_period}S'
+        ).interpolate('time', limit=interp_limit).dropna()
+        # Save records.
         tag_record['i'] = tag
-        tags_record[tag] = tag_record
+        tags_record.append(tag_record)
     record = pd.concat(
-        tags_record.values()
+        tags_record
     ).set_index('i', append=True).sort_index()
     # pandasgui.show(record)
     # Assign locations to a floor.
@@ -151,8 +173,8 @@ def main():
     record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
     record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
     # Define the points' colors.
-    colormap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
-    record['c'] = record.index.get_level_values('i').map(colormap)
+    cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
+    record['c'] = record.index.get_level_values('i').map(cmap)
     # Create the first frame.
     plt.rcParams['figure.facecolor'] = 'black'
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
@@ -166,7 +188,7 @@ def main():
     frames = pd.date_range(
         record.index[0][0],
         record.index[-1][0],
-        freq='T'
+        freq=f'{target_period}S'
     )
     if conf['frames'] is not None:
         frames = frames[:conf['frames']]
@@ -184,7 +206,7 @@ def main():
         for tag in profile['tags']
     }
     if conf['show_trace']:
-        bg_plot = ax.scatter(
+        trace_plot = ax.scatter(
             record.loc[(frames[0], tag), 'x'],
             record.loc[(frames[0], tag), 'y'],
             c=record.loc[(frames[0], tag), 'c'],
@@ -194,7 +216,7 @@ def main():
             zorder=4
         )
     else:
-        bg_plot = None
+        trace_plot = None
     # pos_line_plot, = ax.plot(
     #     data['x'],
     #     data['y'],
@@ -205,8 +227,18 @@ def main():
     # )
     time_plot = ax.annotate(frames[0], (.03, .06), xycoords='axes fraction')
     fig.tight_layout()
-    updater = get_plot_updater(tag_plots, record, time_plot, bg_plot)
-    ani = ma.FuncAnimation(fig, updater, frames=frames)
+    updater = get_plot_updater(
+        tag_plots,
+        record,
+        time_plot,
+        trace_plot
+    )
+    ani = ma.FuncAnimation(
+        fig,
+        updater,
+        frames=frames,
+        interval=1000//conf['fps']  # interval is in ms
+    )
     if conf['video'] is None:
         plt.show()
         return
