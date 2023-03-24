@@ -28,19 +28,18 @@ def get_arg_parser():
     )
     parser.add_argument(
         '--video',
-        required=True,
-        help="Path of the video in the output dir"
+        help="Path of the video in the output dir; if omitted, just play"
     )
     parser.add_argument(
         '--frames',
         type=int,
         help="Optional number of frames to output"
     )
-    # parser.add_argument(
-    #     '--dummy',
-    #     action='store_true',
-    #     help="Dummy"
-    # )
+    parser.add_argument(
+        '--show_trace',
+        action='store_true',
+        help="Show the trace of tracking points"
+    )
     return parser
 
 
@@ -66,7 +65,7 @@ def get_config():
     return conf
 
 
-def get_plot_updater(tag_plots, record, time_plot):
+def get_plot_updater(tag_plots, record, time_plot, bg_plot):
     def update(frame):
         time_plot.set_text(frame)
         for tag, tag_plot in tag_plots.items():
@@ -77,6 +76,10 @@ def get_plot_updater(tag_plots, record, time_plot):
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
             tag_plot.set_alpha(.8)
+        if bg_plot is not None:
+            trace = record.loc[:frame]
+            bg_plot.set_offsets(trace[['x', 'y']])
+            bg_plot.set_facecolor(trace['c'])
         # line_plot.set_data(data['x'].iloc[:fid+1], data['y'].iloc[:fid+1])
     return update
 
@@ -140,7 +143,7 @@ def main():
     record['floor'] = ""
     for floor, floor_max in sorted(
             floor_maxima.items(), key=lambda it: it[1], reverse=True):
-        record.loc[record['z'] < floor_max, 'floor'] = floor
+        record.loc[record['z'] < floor_max+1000, 'floor'] = floor
     record = record.drop(record[record['floor'] == ""].index)
     # Change coordinates depending on the floor.
     data_xforms = np.vstack(record['floor'].map(profile['transforms']))
@@ -160,15 +163,6 @@ def main():
         ax.annotate(name, xy, xytext=(5, 5), textcoords='offset pixels',
                     path_effects=[pe.withStroke(linewidth=2, foreground='w')],
                     fontsize=4)
-    # bg_plot = ax.scatter(
-    #     record['x'],
-    #     record['y'],
-    #     c=record['c'],
-    #     alpha=.2,
-    #     edgecolor='none',
-    #     s=25,
-    #     zorder=5
-    # )
     frames = pd.date_range(
         record.index[0][0],
         record.index[-1][0],
@@ -182,12 +176,25 @@ def main():
             record.loc[(frames[0], tag), 'y'],
             c=record.loc[(frames[0], tag), 'c'],
             alpha=.8,
-            edgecolor='none',
+            edgecolor='k',
+            lw=.5,
             s=50,
             zorder=5
         )
         for tag in profile['tags']
     }
+    if conf['show_trace']:
+        bg_plot = ax.scatter(
+            record.loc[(frames[0], tag), 'x'],
+            record.loc[(frames[0], tag), 'y'],
+            c=record.loc[(frames[0], tag), 'c'],
+            alpha=.1,
+            edgecolor='none',
+            s=20,
+            zorder=4
+        )
+    else:
+        bg_plot = None
     # pos_line_plot, = ax.plot(
     #     data['x'],
     #     data['y'],
@@ -198,9 +205,11 @@ def main():
     # )
     time_plot = ax.annotate(frames[0], (.03, .06), xycoords='axes fraction')
     fig.tight_layout()
-    updater = get_plot_updater(tag_plots, record, time_plot)
+    updater = get_plot_updater(tag_plots, record, time_plot, bg_plot)
     ani = ma.FuncAnimation(fig, updater, frames=frames)
-    # plt.show()
+    if conf['video'] is None:
+        plt.show()
+        return
     bar = tqdm(total=len(frames))
     # metadata = dict(title='Movie Test', artist='Matplotlib',
     #                 comment='a red circle following a blue sine wave')
