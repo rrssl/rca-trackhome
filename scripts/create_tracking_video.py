@@ -22,24 +22,19 @@ def get_arg_parser():
         help="Path to the config file"
     )
     parser.add_argument(
-        '--place',
-        required=True,
-        help="Name of the experiment's place"
-    )
-    parser.add_argument(
-        '--floorplan',
-        required=True,
-        help="Path of the floorplan in the place's floorplan dir"
-    )
-    parser.add_argument(
         '--profile',
         required=True,
-        help="Path of the profile in the place's floorplan dir"
+        help="Path of the profile in the data dir"
     )
     parser.add_argument(
-        '--experiment',
+        '--video',
         required=True,
-        help="Name of the experiment in the place's tracking dir"
+        help="Path of the video in the output dir"
+    )
+    parser.add_argument(
+        '--frames',
+        type=int,
+        help="Optional number of frames to output"
     )
     # parser.add_argument(
     #     '--dummy',
@@ -88,12 +83,12 @@ def get_plot_updater(tag_plots, record, time_plot):
 
 def main():
     conf = get_config()
-    data_dir = conf['global']['data_dir'] / conf['place']
-    floorplan_path = data_dir / "floorplan" / conf['floorplan']
-    profile_path = data_dir / "floorplan" / conf['profile']
+    data_dir = conf['global']['data_dir']
+    profile_path = data_dir / conf['profile']
     with open(profile_path, 'r') as handle:
         profile = json.load(handle)
-    record_path = data_dir / "tracking" / conf['experiment'] / "location.csv"
+    floorplan_path = data_dir / profile['files']['floorplan']
+    record_path = data_dir / profile['files']['recording']
     # Load the floorplans.
     floorplan_img = Image.open(floorplan_path)
     # Scale and align the anchors.
@@ -116,7 +111,7 @@ def main():
     record = record.set_index(
         pd.to_datetime(
             record['t'], unit='ms', utc=True
-        ).dt.tz_convert("Europe/London")
+        ).dt.tz_convert(profile['timezone'])
     )
     record = record.drop(  # remove points at (0, 0)
         record[(record['x'] == 0) & (record['y'] == 0)].index
@@ -179,6 +174,8 @@ def main():
         record.index[-1][0],
         freq='T'
     )
+    if conf['frames'] is not None:
+        frames = frames[:conf['frames']]
     tag_plots = {
         tag: ax.scatter(
             record.loc[(frames[0], tag), 'x'],
@@ -207,8 +204,9 @@ def main():
     bar = tqdm(total=len(frames))
     # metadata = dict(title='Movie Test', artist='Matplotlib',
     #                 comment='a red circle following a blue sine wave')
+    video_path = conf['global']['out_dir'] / conf['video']
     ani.save(
-        "test.mp4",
+        video_path,
         writer='ffmpeg',
         progress_callback=lambda i, n: bar.update()
     )
