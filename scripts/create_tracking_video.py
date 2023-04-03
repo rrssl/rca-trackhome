@@ -133,7 +133,7 @@ def main():
     )
     tags_record = []
     target_period = conf['speed'] // conf['fps']
-    assert 1 <= target_period <= 60, "Speed must be between 1 and 60 x FPS"
+    assert target_period >= 1, "Speed must be higher than the FPS"
     for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
         # Remove consecutive duplicates.
         tag_record = tag_record.sort_index()
@@ -144,12 +144,9 @@ def main():
         # First downsample to remove some of the noise.
         tag_record = tag_record[['x', 'y', 'z']].resample('T').mean().dropna()
         # Then upsample to match the target speed given the framerate.
-        interp_limit = 60//target_period - 1  # can't go past downsample period
-        if interp_limit < 1:
-            interp_limit = None
         tag_record = tag_record[['x', 'y', 'z']].resample(
             f'{target_period}S'
-        ).interpolate('time', limit=interp_limit).dropna()
+        ).interpolate('time', limit=2).dropna()
         # Save records.
         tag_record['i'] = tag
         tags_record.append(tag_record)
@@ -192,24 +189,24 @@ def main():
     )
     if conf['frames'] is not None:
         frames = frames[:conf['frames']]
-    tag_plots = {
-        tag: ax.scatter(
-            record.loc[(frames[0], tag), 'x'],
-            record.loc[(frames[0], tag), 'y'],
-            c=record.loc[(frames[0], tag), 'c'],
+    tag_plots = {}
+    for tag in profile['tags']:
+        tag_first_record = record.xs(tag, level='i').iloc[0]
+        tag_plots[tag] = ax.scatter(
+            tag_first_record['x'],
+            tag_first_record['y'],
+            c=tag_first_record['c'],
             alpha=.8,
             edgecolor='k',
             lw=.5,
             s=50,
             zorder=5
         )
-        for tag in profile['tags']
-    }
     if conf['show_trace']:
         trace_plot = ax.scatter(
-            record.loc[(frames[0], tag), 'x'],
-            record.loc[(frames[0], tag), 'y'],
-            c=record.loc[(frames[0], tag), 'c'],
+            record.iloc[0]['x'],
+            record.iloc[0]['y'],
+            c=record.iloc[0]['c'],
             alpha=.1,
             edgecolor='none',
             s=20,
