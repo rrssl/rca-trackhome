@@ -122,7 +122,8 @@ def get_recording(
     record_path: Path,
     profile: dict,
     anchors: pd.DataFrame,
-    target_period: int
+    denoise_period: int = 60,
+    interp_period: int = None
 ) -> pd.DataFrame:
     record = pd.read_csv(record_path)
     record = record[record['i'].isin(profile['tags'])]
@@ -131,6 +132,7 @@ def get_recording(
             record['t'], unit='ms', utc=True
         ).dt.tz_convert(profile['timezone'])
     )
+    record = record.between_time(*profile['time_range'])
     record = record.drop(  # remove points at (0, 0)
         record[(record['x'] == 0) & (record['y'] == 0)].index
     )
@@ -142,12 +144,15 @@ def get_recording(
             (tag_record['x'].shift(1) == tag_record['x'])
             & (tag_record['y'].shift(1) == tag_record['y'])
         ].index)
-        # First downsample to remove some of the noise.
-        tag_record = tag_record[['x', 'y', 'z']].resample('T').mean().dropna()
-        # Then upsample to match the target speed given the framerate.
+        # First denoise by averaging over time windows.
         tag_record = tag_record[['x', 'y', 'z']].resample(
-            f'{target_period}S'
-        ).interpolate('time', limit=2).dropna()
+            f'{denoise_period}S'
+        ).mean().dropna()
+        # Then interpolate to match the target period.
+        if interp_period is not None:
+            tag_record = tag_record[['x', 'y', 'z']].resample(
+                f'{interp_period}S'
+            ).interpolate('time', limit=2).dropna()
         # Save records.
         tag_record['i'] = tag
         tags_record.append(tag_record)
@@ -187,7 +192,12 @@ def main():
     anchors = get_anchors(profile)
     target_period = conf['speed'] // conf['fps']
     assert target_period >= 1, "Speed must be higher than the FPS"
-    record = get_recording(record_path, profile, anchors, target_period)
+    record = get_recording(
+        record_path,
+        profile,
+        anchors,
+        interp_period=target_period
+    )
     # Define the points' colors.
     cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
     record['c'] = record.index.get_level_values('i').map(cmap)
@@ -211,6 +221,9 @@ def main():
         record.index[-1][0],
         freq=f'{target_period}S'
     )
+    frames = frames[
+        frames.indexer_between_time(*profile['time_range'])
+    ].copy()
     if conf['frames'] is not None:
         frames = frames[:conf['frames']]
     tag_plots = {}
