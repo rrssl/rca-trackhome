@@ -118,18 +118,12 @@ def get_anchors(profile: dict) -> pd.DataFrame:
     return anchors
 
 
-def main():
-    conf = get_config()
-    data_dir = conf['global']['data_dir']
-    profile_path = data_dir / conf['profile']
-    with open(profile_path, 'r') as handle:
-        profile = json.load(handle)
-    floorplan_path = data_dir / profile['files']['floorplan']
-    record_path = data_dir / profile['files']['recording']
-    # Load the floorplans and anchors.
-    floorplan_img = Image.open(floorplan_path)
-    anchors = get_anchors(profile)
-    # Load and clean the data.
+def get_recording(
+    record_path: Path,
+    profile: dict,
+    anchors: pd.DataFrame,
+    target_period: int
+) -> pd.DataFrame:
     record = pd.read_csv(record_path)
     record = record[record['i'].isin(profile['tags'])]
     record = record.set_index(
@@ -141,8 +135,6 @@ def main():
         record[(record['x'] == 0) & (record['y'] == 0)].index
     )
     tags_record = []
-    target_period = conf['speed'] // conf['fps']
-    assert target_period >= 1, "Speed must be higher than the FPS"
     for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
         # Remove consecutive duplicates.
         tag_record = tag_record.sort_index()
@@ -178,6 +170,24 @@ def main():
     record['y'] = anchors['y'].max() - record['y']  # swap y axis
     record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
     record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
+
+    return record
+
+
+def main():
+    conf = get_config()
+    data_dir = conf['global']['data_dir']
+    profile_path = data_dir / conf['profile']
+    with open(profile_path, 'r') as handle:
+        profile = json.load(handle)
+    floorplan_path = data_dir / profile['files']['floorplan']
+    record_path = data_dir / profile['files']['recording']
+    # Load the data (floorplan, anchors, recording).
+    floorplan_img = Image.open(floorplan_path)
+    anchors = get_anchors(profile)
+    target_period = conf['speed'] // conf['fps']
+    assert target_period >= 1, "Speed must be higher than the FPS"
+    record = get_recording(record_path, profile, anchors, target_period)
     # Define the points' colors.
     cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
     record['c'] = record.index.get_level_values('i').map(cmap)
