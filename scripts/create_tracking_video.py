@@ -96,6 +96,28 @@ def get_plot_updater(tag_plots, record, time_plot, trace_plot):
     return update
 
 
+def get_anchors(profile: dict) -> pd.DataFrame:
+    anchors = pd.DataFrame.from_dict(
+        data=profile['anchors'],
+        orient='index',
+        dtype=float,
+        columns=['x', 'y', 'z']
+    )
+    anchors['floor'] = ""
+    for floor, floor_anchors in profile['floors'].items():
+        for fa in floor_anchors:
+            anchors.loc[fa, 'floor'] = floor
+    anchors[['tx', 'ty', 's']] = anchors.apply(
+        lambda row: profile['transforms'][row['floor']],
+        axis=1,
+        result_type='expand'
+    )
+    anchors['yi'] = anchors['y'].max() - anchors['y']  # swap y axis
+    anchors['yi'] = anchors['yi']*anchors['s'] + anchors['ty']
+    anchors['xi'] = anchors['x']*anchors['s'] + anchors['tx']
+    return anchors
+
+
 def main():
     conf = get_config()
     data_dir = conf['global']['data_dir']
@@ -104,22 +126,9 @@ def main():
         profile = json.load(handle)
     floorplan_path = data_dir / profile['files']['floorplan']
     record_path = data_dir / profile['files']['recording']
-    # Load the floorplans.
+    # Load the floorplans and anchors.
     floorplan_img = Image.open(floorplan_path)
-    # Scale and align the anchors.
-    anchors_names = list(profile['anchors'].keys())
-    anchors_floors = {}
-    for floor, floor_anchors in profile['floors'].items():
-        for fa in floor_anchors:
-            anchors_floors[fa] = floor
-    anchors_xforms = np.array([
-        profile['transforms'][anchors_floors[a]] for a in anchors_names
-    ])
-    anchors_3d = np.array(list(profile['anchors'].values()), dtype=float)
-    anchors_2d = anchors_3d[:, :2].copy()
-    anchors_2d[:, 1] = anchors_3d[:, 1].max() - anchors_2d[:, 1]  # swap y axis
-    anchors_2d *= anchors_xforms[:, 2:]
-    anchors_2d += anchors_xforms[:, :2]
+    anchors = get_anchors(profile)
     # Load and clean the data.
     record = pd.read_csv(record_path)
     record = record[record['i'].isin(profile['tags'])]
@@ -166,7 +175,7 @@ def main():
     record = record.drop(record[record['floor'] == ""].index)
     # Change coordinates depending on the floor.
     data_xforms = np.vstack(record['floor'].map(profile['transforms']))
-    record['y'] = anchors_3d[:, 1].max() - record['y']  # swap y axis
+    record['y'] = anchors['y'].max() - record['y']  # swap y axis
     record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
     record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
     # Define the points' colors.
@@ -177,11 +186,16 @@ def main():
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
     ax.set_axis_off()
     ax.imshow(np.asarray(floorplan_img), zorder=2)
-    ax.scatter(*anchors_2d.T, marker='s', s=10, zorder=3)
-    for name, xy in zip(anchors_names, anchors_2d):
-        ax.annotate(name, xy, xytext=(5, 5), textcoords='offset pixels',
-                    path_effects=[pe.withStroke(linewidth=2, foreground='w')],
-                    fontsize=4)
+    ax.scatter(anchors['xi'], anchors['yi'], marker='s', s=10, zorder=3)
+    for name, anchor in anchors.iterrows():
+        ax.annotate(
+            name,
+            (anchor['xi'], anchor['yi']),
+            xytext=(5, 5),
+            textcoords='offset pixels',
+            path_effects=[pe.withStroke(linewidth=2, foreground='w')],
+            fontsize=4
+        )
     frames = pd.date_range(
         record.index[0][0],
         record.index[-1][0],
