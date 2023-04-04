@@ -27,10 +27,16 @@ from matplotlib.patches import Rectangle
 from PIL import Image
 from scipy import spatial, stats
 
-# +
+from trkpy.postprocess import get_anchors, get_recording
+# -
+
 ACONF = {
     'config': "../config/local.yml",
     'profile': "sportsman/tracking/both/test-3/profile_full.json"
+}
+bounds = {
+    'lower': (270, 800, 95, 890),
+    'upper': (1130, 1650, 95, 890)
 }
 with open(ACONF['config'], 'r') as handle:
     conf = yaml.safe_load(handle)
@@ -41,87 +47,10 @@ with open(profile_path, 'r') as handle:
     profile = json.load(handle)
 floorplan_path = data_dir / profile['files']['floorplan']
 record_path = data_dir / profile['files']['recording']
-# Load the floorplan.
+# Load the data.
 floorplan_img = Image.open(floorplan_path)
-
-bounds = {
-    'lower': (270, 800, 95, 890),
-    'upper': (1130, 1650, 95, 890)
-}
-
-
-# +
-def get_anchors(profile) -> pd.DataFrame:
-    anchors = pd.DataFrame.from_dict(
-        data=profile['anchors'],
-        orient='index',
-        dtype=float,
-        columns=['x', 'y', 'z']
-    )
-    anchors['floor'] = ""
-    for floor, floor_anchors in profile['floors'].items():
-        for fa in floor_anchors:
-            anchors.loc[fa, 'floor'] = floor
-    anchors[['tx', 'ty', 's']] = anchors.apply(
-        lambda row: profile['transforms'][row['floor']],
-        axis=1,
-        result_type='expand'
-    )
-    anchors['i'] = anchors['y'].max() - anchors['y']  # swap y axis
-    anchors['i'] = anchors['i']*anchors['s'] + anchors['ty']
-    anchors['j'] = anchors['x']*anchors['s'] + anchors['tx']
-    return anchors
-
 anchors = get_anchors(profile)
-
-
-# +
-def get_recording(record_path, profile, anchors):
-    record = pd.read_csv(record_path)
-    record = record[record['i'].isin(profile['tags'])]
-    record = record.set_index(
-        pd.to_datetime(
-            record['t'], unit='ms', utc=True
-        ).dt.tz_convert(profile['timezone'])
-    )
-    record = record.drop(  # remove points at (0, 0)
-        record[(record['x'] == 0) & (record['y'] == 0)].index
-    )
-    tags_record = []
-    for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
-        # Remove consecutive duplicates.
-        tag_record = tag_record.sort_index()
-        tag_record = tag_record.drop(tag_record[
-            (tag_record['x'].shift(1) == tag_record['x'])
-            & (tag_record['y'].shift(1) == tag_record['y'])
-        ].index)
-        # Downsample to remove some of the noise.
-        tag_record = tag_record[['x', 'y', 'z']].resample('60S').mean().dropna()
-        # Save result.
-        tag_record['i'] = tag
-        tags_record.append(tag_record)
-    record = pd.concat(
-        tags_record
-    ).set_index('i', append=True).sort_index()
-    # Assign locations to a floor.
-    floor_maxima = {
-        floor: max(profile['anchors'][fa][2] for fa in floor_anchors)
-        for floor, floor_anchors in profile['floors'].items()
-    }
-    record['floor'] = ""
-    for floor, floor_max in sorted(
-            floor_maxima.items(), key=lambda it: it[1], reverse=True):
-        record.loc[record['z'] < floor_max+1000, 'floor'] = floor
-    record = record.drop(record[record['floor'] == ""].index)
-    # Change coordinates depending on the floor.
-    data_xforms = np.vstack(record['floor'].map(profile['transforms']))
-    record['y'] = anchors['y'].max() - record['y']  # swap y axis
-    record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
-    record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
-
-    return record
-
-record = get_recording(record_path, profile, anchors)
+record = get_recording(record_path, profile, anchors, denoise_period=120)
 display(record)
 
 
@@ -129,11 +58,11 @@ display(record)
 def plot_background(ax):
     ax.set_axis_off()
     img_plot = ax.imshow(np.asarray(floorplan_img), zorder=2)
-    ax.scatter(anchors['j'], anchors['i'], marker='s', s=10, zorder=3)
+    ax.scatter(anchors['xi'], anchors['yi'], marker='s', s=10, zorder=3)
     for name, row in anchors.iterrows():
         ax.annotate(
             name,
-            (row['j'], row['i']),
+            (row['xi'], row['yi']),
             xytext=(5, 5),
             textcoords='offset pixels',
             path_effects=[pe.withStroke(linewidth=2, foreground='w')],
@@ -244,7 +173,7 @@ for tag, tag_cmap in zip(profile['tags'], ('RdPu', 'Greens')):
             cmap=tag_cmap,
             alpha=.5,
             extent=floor_bounds,
-            norm=PowerNorm(gamma=.3, vmin=vmin, vmax=vmax),
+            # norm=PowerNorm(gamma=.5, vmin=vmin, vmax=vmax),
             # norm=LogNorm(vmin=vmin, vmax=vmax),
             zorder=4
         )
@@ -279,7 +208,7 @@ for tag, tag_cmap in zip(profile['tags'], ('RdPu', 'Greens')):
             cmap=tag_cmap+'_r',
             alpha=.5,
             extent=floor_bounds,
-            # norm=PowerNorm(gamma=.7),
+            # norm=PowerNorm(gamma=.5),
             zorder=4
         )
     plot_background(ax);

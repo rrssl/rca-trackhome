@@ -12,6 +12,8 @@ import yaml
 from PIL import Image
 from tqdm import tqdm
 
+from trkpy import postprocess
+
 
 def get_arg_parser():
     parser = ArgumentParser(description=__doc__)
@@ -96,89 +98,6 @@ def get_plot_updater(tag_plots, record, time_plot, trace_plot):
     return update
 
 
-def get_anchors(profile: dict) -> pd.DataFrame:
-    anchors = pd.DataFrame.from_dict(
-        data=profile['anchors'],
-        orient='index',
-        dtype=float,
-        columns=['x', 'y', 'z']
-    )
-    anchors['floor'] = ""
-    for floor, floor_anchors in profile['floors'].items():
-        for fa in floor_anchors:
-            anchors.loc[fa, 'floor'] = floor
-    anchors[['tx', 'ty', 's']] = anchors.apply(
-        lambda row: profile['transforms'][row['floor']],
-        axis=1,
-        result_type='expand'
-    )
-    anchors['yi'] = anchors['y'].max() - anchors['y']  # swap y axis
-    anchors['yi'] = anchors['yi']*anchors['s'] + anchors['ty']
-    anchors['xi'] = anchors['x']*anchors['s'] + anchors['tx']
-    return anchors
-
-
-def get_recording(
-    record_path: Path,
-    profile: dict,
-    anchors: pd.DataFrame,
-    denoise_period: int = 60,
-    interp_period: int = None
-) -> pd.DataFrame:
-    record = pd.read_csv(record_path)
-    record = record[record['i'].isin(profile['tags'])]
-    record = record.set_index(
-        pd.to_datetime(
-            record['t'], unit='ms', utc=True
-        ).dt.tz_convert(profile['timezone'])
-    )
-    record = record.between_time(*profile['time_range'])
-    record = record.drop(  # remove points at (0, 0)
-        record[(record['x'] == 0) & (record['y'] == 0)].index
-    )
-    tags_record = []
-    for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
-        # Remove consecutive duplicates.
-        tag_record = tag_record.sort_index()
-        tag_record = tag_record.drop(tag_record[
-            (tag_record['x'].shift(1) == tag_record['x'])
-            & (tag_record['y'].shift(1) == tag_record['y'])
-        ].index)
-        # First denoise by averaging over time windows.
-        tag_record = tag_record[['x', 'y', 'z']].resample(
-            f'{denoise_period}S'
-        ).mean().dropna()
-        # Then interpolate to match the target period.
-        if interp_period is not None:
-            tag_record = tag_record[['x', 'y', 'z']].resample(
-                f'{interp_period}S'
-            ).interpolate('time', limit=2).dropna()
-        # Save records.
-        tag_record['i'] = tag
-        tags_record.append(tag_record)
-    record = pd.concat(
-        tags_record
-    ).set_index('i', append=True).sort_index()
-    # pandasgui.show(record)
-    # Assign locations to a floor.
-    floor_maxima = {
-        floor: max(profile['anchors'][fa][2] for fa in floor_anchors)
-        for floor, floor_anchors in profile['floors'].items()
-    }
-    record['floor'] = ""
-    for floor, floor_max in sorted(
-            floor_maxima.items(), key=lambda it: it[1], reverse=True):
-        record.loc[record['z'] < floor_max+1000, 'floor'] = floor
-    record = record.drop(record[record['floor'] == ""].index)
-    # Change coordinates depending on the floor.
-    data_xforms = np.vstack(record['floor'].map(profile['transforms']))
-    record['y'] = anchors['y'].max() - record['y']  # swap y axis
-    record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
-    record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
-
-    return record
-
-
 def main():
     conf = get_config()
     data_dir = conf['global']['data_dir']
@@ -189,10 +108,10 @@ def main():
     record_path = data_dir / profile['files']['recording']
     # Load the data (floorplan, anchors, recording).
     floorplan_img = Image.open(floorplan_path)
-    anchors = get_anchors(profile)
+    anchors = postprocess.get_anchors(profile)
     target_period = conf['speed'] // conf['fps']
     assert target_period >= 1, "Speed must be higher than the FPS"
-    record = get_recording(
+    record = postprocess.get_recording(
         record_path,
         profile,
         anchors,
