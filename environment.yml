@@ -5,6 +5,8 @@ channels:
 dependencies:
   - python=3.9
   - cryptography
+  - flask
+  - jsonschema
   - jupyterlab
   - jupytext
   - numpy
@@ -13,10 +15,8 @@ dependencies:
   - python-lsp-server
   - pyyaml
   - pip:
-    - google-cloud-iot
     - google-cloud-pubsub
     - gpiozero
-    - open3d
     - paho-mqtt
     - pypozyx
     - RPi.GPIO
