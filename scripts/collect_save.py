@@ -5,8 +5,9 @@ import argparse
 import json
 import logging
 import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
-from logging.handlers import QueueHandler
+from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from queue import Queue
 from threading import Event, Thread
@@ -18,6 +19,27 @@ from jsonschema.exceptions import ValidationError
 from trkpy.cloud import AWSClient
 from trkpy.collect import CloudCollector
 from trkpy.validate import validate_tracking_config
+
+
+class SSEHandler(logging.Handler):
+    """Handler that distributes Server Sent Events to multiple clients."""
+
+    def __init__(self, maxlen: int, level=logging.NOTSET):
+        super().__init__(level)
+        self.maxlen = maxlen
+        self._logs = []
+
+    def add_client(self) -> int:
+        self._logs.append(deque(maxlen=self.maxlen))
+        return len(self._logs) - 1
+
+    def emit(self, record: logging.LogRecord):
+        message = record.getMessage()
+        for log in self._logs:
+            log.append(message)
+
+    def get(self, client_id: int):
+        return self._logs[client_id].popleft()
 
 
 def check_config_name(filename):
@@ -96,7 +118,7 @@ def init_logger(que: Queue = None):
         root_logger.addHandler(queue_handler)
 
 
-def init_webapp(log_queue: Queue, client: AWSClient):
+def init_webapp(log_handler: SSEHandler, client: AWSClient):
     app = Flask(__name__)
 
     @app.route("/log")
@@ -119,10 +141,16 @@ def init_webapp(log_queue: Queue, client: AWSClient):
 
     @app.route("/update-log")
     def update_log():
+        client_id = log_handler.add_client()
+
         def event_stream():
             while True:
-                if not log_queue.empty():
-                    yield f"data: {log_queue.get().getMessage()}\n\n"
+                try:
+                    message = log_handler.get(client_id)
+                except IndexError:
+                    pass
+                else:
+                    yield f"data: {message}\n\n"
                 time.sleep(.1)  # avoid using 100% CPU
         return Response(event_stream(), mimetype="text/event-stream")
 
@@ -193,15 +221,18 @@ def flush_collector(
 def main():
     """Entry point."""
     que = Queue(-1)
+    sse_handler = SSEHandler(maxlen=20)
+    sse_listener = QueueListener(que, sse_handler)
+    sse_listener.start()
     init_logger(que)
     conf = get_config()
-    client = AWSClient(**conf['cloud']['aws'], publisher=False)
-    app = init_webapp(que, client)
+    cloud_client = AWSClient(**conf['cloud']['aws'], publisher=False)
+    app = init_webapp(sse_handler, cloud_client)
     out_dir = Path(conf['global']['out_dir'])
     subscriptions = ['location', 'error', 'debug']
     types = ['json', 'str', 'str']
     collector = CloudCollector(
-        client,
+        cloud_client,
         subscriptions,
         types,
         flush_dir=out_dir,
@@ -218,7 +249,8 @@ def main():
     finally:
         stop_flush_thread.set()
         flush_thread.join()
-        client.disconnect()
+        cloud_client.disconnect()
+        sse_listener.stop()
 
 
 if __name__ == "__main__":
