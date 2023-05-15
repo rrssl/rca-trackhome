@@ -120,6 +120,7 @@ def init_logger(que: Queue = None):
 
 def init_webapp(log_handler: SSEHandler, client: AWSClient):
     app = Flask(__name__)
+    app.config['TRACKING'] = {}
 
     @app.route("/log")
     def log_page():
@@ -171,7 +172,9 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
             except ValidationError as e:
                 app.config['ERROR_REASON'] = e.message
                 return redirect('upload-error')
-            # Send the config
+            # Save the config for visualization purposes.
+            app.config['TRACKING'] = config.copy()
+            # Send the config.
             device = request.form['device']
             client.publish(f"config/{device}", json.dumps(config))
             return f"""
@@ -201,6 +204,62 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
             <h1>Upload error</h1>
             <p>Error: {app.config['ERROR_REASON']}</p>
             <p><a href="{url_for('upload_page')}">Try again</a></p>
+            """
+
+    @app.route("/view")
+    def view_page():
+        if not app.config['TRACKING']:
+            return f"""
+                <!doctype html>
+                <title>Live view</title>
+                <h1>Live view</h1>
+                Please upload the
+                <a href={url_for('upload_page')}>configuration</a>
+                first.
+                """
+        scale = .1
+        marg = 50
+        anchors = app.config['TRACKING']['anchors']
+        width = int(max(xyz[0] for xyz in anchors.values()) * scale)
+        height = int(max(xyz[1] for xyz in anchors.values()) * scale)
+        anchors_str = ""
+        for anchor, (ax, ay, az) in anchors.items():
+            ax = int(ax * scale) + marg
+            ay = height - int(ay * scale) + marg
+            anchors_str += f"ctx.fillRect({ax}, {ay}, {10}, {10}); "
+            anchors_str += f"ctx.fillText('{anchor}', {ax-10}, {ay-10}); "
+        return f"""
+            <!doctype html>
+            <title>Live view</title>
+            <h1>Live view</h1>
+            <select name="device">
+              <option value="rpi1">rpi1</option>
+              <option value="rpi2">rpi2</option>
+            </select>
+            <br>
+            <canvas id="view" width="{width+2*marg}" height="{height+2*marg}">
+            </canvas>
+            <script>
+              const canvas = document.getElementById('view');
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = 'rgba(240, 240, 240, 1)';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = 'rgba(0, 0, 255, 1)';
+              {anchors_str}
+              ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+              const eventSrc = new EventSource('{url_for("update_log")}');
+              eventSrc.onmessage = e => {{
+                const result = e.data.match(/{{.*?}}/)
+                if (result) {{
+                    const data = JSON.parse(result[0].replaceAll(`'`, `"`));
+                    console.log(data);
+                    const tx = data.x*{scale} + {marg};
+                    const ty = {height} - data.y*{scale} + {marg};
+                    ctx.fillRect(tx, ty, 10, 10);
+                    ctx.fillText(data.i, tx-10, ty-10);
+                }}
+              }}
+            </script>
             """
 
     return app
