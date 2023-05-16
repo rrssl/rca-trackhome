@@ -50,7 +50,9 @@ class CloudCollector:
         except (KeyError, ValueError):
             msg_time = datetime.now(timezone.utc)
         msg_sender = props.get('client_id')
-        logger.debug((msg_content, msg_time, msg_sender))
+        logger.debug(json.dumps(  # use json to preserve double quotes
+            (msg_content, msg_time.isoformat(), msg_sender)
+        ))
         self._sub_buffers[message.topic].append(
             (msg_content, msg_time, msg_sender)
         )

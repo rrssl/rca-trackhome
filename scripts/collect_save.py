@@ -115,6 +115,7 @@ def init_logger(que: Queue = None):
     if que is not None:
         queue_handler = QueueHandler(que)
         queue_handler.addFilter(logging.Filter("trkpy"))
+        queue_handler.setFormatter(stream_formatter)
         root_logger.addHandler(queue_handler)
 
 
@@ -219,24 +220,31 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
                 """
         scale = .1
         marg = 50
+        ctrls = ("rpi1", "rpi2", "rpi3", "alduin")
+        # Prepare the code for the anchors.
         anchors = app.config['TRACKING']['anchors']
         width = int(max(xyz[0] for xyz in anchors.values()) * scale)
         height = int(max(xyz[1] for xyz in anchors.values()) * scale)
-        anchors_str = ""
-        for anchor, (ax, ay, az) in anchors.items():
-            ax = int(ax * scale) + marg
-            ay = height - int(ay * scale) + marg
-            anchors_str += f"ctx.fillRect({ax}, {ay}, {10}, {10}); "
-            anchors_str += f"ctx.fillText('{anchor}', {ax-10}, {ay-10}); "
+        anchors_code = "ctx.fillStyle = 'rgba(0, 0, 0, 1)'; "
+        for anchor, (a_x, a_y, _) in anchors.items():
+            a_x = int(a_x * scale) + marg
+            a_y = height - int(a_y * scale) + marg
+            anchors_code += f"ctx.fillRect({a_x}, {a_y}, {10}, {10}); "
+            anchors_code += f"ctx.fillText('{anchor}', {a_x-10}, {a_y-10}); "
+        # Prepare the color mapping for the tags and controllers.
+        tags = app.config['TRACKING']['tags']
+        ctrl_tag_color = {}
+        for i, ctrl in enumerate(ctrls):
+            tag_color = {}
+            for j, tag in enumerate(tags):
+                col = [10, 10, 10]
+                col[j] = 255 // ((i % 3) + 1)
+                tag_color[tag] = f"rgba({col[0]}, {col[1]}, {col[2]}, 0.8)"
+            ctrl_tag_color[ctrl] = tag_color
         return f"""
             <!doctype html>
             <title>Live view</title>
             <h1>Live view</h1>
-            <select name="device">
-              <option value="rpi1">rpi1</option>
-              <option value="rpi2">rpi2</option>
-            </select>
-            <br>
             <canvas id="view" width="{width+2*marg}" height="{height+2*marg}">
             </canvas>
             <script>
@@ -244,19 +252,19 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
               const ctx = canvas.getContext('2d');
               ctx.fillStyle = 'rgba(240, 240, 240, 1)';
               ctx.fillRect(0, 0, canvas.width, canvas.height);
-              ctx.fillStyle = 'rgba(0, 0, 255, 1)';
-              {anchors_str}
-              ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+              {anchors_code}
               const eventSrc = new EventSource('{url_for("update_log")}');
+              const ctrlTagColor = {json.dumps(ctrl_tag_color)};
               eventSrc.onmessage = e => {{
-                const result = e.data.match(/{{.*?}}/)
+                const result = e.data.match(/\\[.*?\\]/)
                 if (result) {{
-                    const data = JSON.parse(result[0].replaceAll(`'`, `"`));
-                    console.log(data);
+                    const [data, time, ctrl] = JSON.parse(result[0]);
+                    if (typeof data === 'string') return;
                     const tx = data.x*{scale} + {marg};
                     const ty = {height} - data.y*{scale} + {marg};
+                    ctx.fillStyle = ctrlTagColor[ctrl][data.i];
                     ctx.fillRect(tx, ty, 10, 10);
-                    ctx.fillText(data.i, tx-10, ty-10);
+                    ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-10);
                 }}
               }}
             </script>
