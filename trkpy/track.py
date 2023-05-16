@@ -2,6 +2,7 @@
 Functions to initialize and use the Pozyx tracker.
 """
 import logging
+import random
 from collections import defaultdict
 from typing import Union
 
@@ -43,12 +44,12 @@ class DummyPozyxSerial:
         if self.pos_counter % self.pos_error_every == 0:
             return px.POZYX_FAILURE
         # Return a fake position.
-        position.x = 100
-        position.y = 200
+        position.x = 1000 + random.randint(-500, 500)
+        position.y = 1000 + random.randint(-500, 500)
         if dimension == px.PozyxConstants.DIMENSION_2_5D:
             position.z = height
         elif dimension == px.PozyxConstants.DIMENSION_3D:
-            position.z = 300
+            position.z = 1700 + random.randint(-10, 10)
         return px.POZYX_SUCCESS
 
     def addDevice(self, device_coordinates, remote_id=None):
