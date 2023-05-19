@@ -13,7 +13,7 @@ from queue import Queue
 from threading import Event, Thread
 
 import yaml
-from flask import Flask, Response, request, redirect, url_for
+from flask import Flask, Response, request, redirect, render_template, url_for
 from jsonschema.exceptions import ValidationError
 
 from trkpy.cloud import AWSClient
@@ -119,27 +119,13 @@ def init_logger(que: Queue = None):
         root_logger.addHandler(queue_handler)
 
 
-def init_webapp(log_handler: SSEHandler, client: AWSClient):
-    app = Flask(__name__)
+def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
+    app = Flask(__name__, template_folder="webapp")
     app.config['TRACKING'] = {}
 
     @app.route("/log")
     def log_page():
-        return f"""
-            <!doctype html>
-            <title>Log</title>
-            <h1>Log</h1>
-            <div id="log"></div>
-            <script>
-              const logDiv = document.getElementById('log');
-              const eventSrc = new EventSource('{url_for("update_log")}');
-              eventSrc.onmessage = e => {{
-                const pre = document.createElement('pre');
-                pre.innerHTML = e.data;
-                logDiv.append(pre);
-              }}
-            </script>
-            """
+        return render_template("log.html", update_url=url_for("update_log"))
 
     @app.route("/update-log")
     def update_log():
@@ -183,19 +169,7 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
                 <p>Config successfully sent to {device}!</p>
                 <pre>{json.dumps(config, indent=4)}</pre>
                 """
-        return """
-            <!doctype html>
-            <title>Upload config file</title>
-            <h1>Upload config file</h1>
-            <form method=post enctype=multipart/form-data>
-              <input type=file accept="application/json" name=config>
-              <select name=device>
-                <option value="rpi1">rpi1</option>
-                <option value="rpi2">rpi2</option>
-              </select>
-              <input type=submit value=Upload>
-            </form>
-            """
+        return render_template("upload.html", ctrls=ctrls)
 
     @app.route("/upload-error")
     def upload_error_page():
@@ -220,17 +194,8 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
                 """
         scale = .1
         marg = 50
-        ctrls = ("rpi1", "rpi2", "rpi3", "alduin")
         # Prepare the code for the anchors.
         anchors = app.config['TRACKING']['anchors']
-        width = int(max(xyz[0] for xyz in anchors.values()) * scale)
-        height = int(max(xyz[1] for xyz in anchors.values()) * scale)
-        anchors_code = "ctx.fillStyle = 'rgba(0, 0, 0, 1)'; "
-        for anchor, (a_x, a_y, _) in anchors.items():
-            a_x = int(a_x * scale) + marg
-            a_y = height - int(a_y * scale) + marg
-            anchors_code += f"ctx.fillRect({a_x}, {a_y}, {10}, {10}); "
-            anchors_code += f"ctx.fillText('{anchor}', {a_x-10}, {a_y-10}); "
         # Prepare the color mapping for the tags and controllers.
         tags = app.config['TRACKING']['tags']
         ctrl_tag_color = {}
@@ -241,34 +206,14 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient):
                 col[j] = 255 // ((i % 3) + 1)
                 tag_color[tag] = f"rgba({col[0]}, {col[1]}, {col[2]}, 0.8)"
             ctrl_tag_color[ctrl] = tag_color
-        return f"""
-            <!doctype html>
-            <title>Live view</title>
-            <h1>Live view</h1>
-            <canvas id="view" width="{width+2*marg}" height="{height+2*marg}">
-            </canvas>
-            <script>
-              const canvas = document.getElementById('view');
-              const ctx = canvas.getContext('2d');
-              ctx.fillStyle = 'rgba(240, 240, 240, 1)';
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              {anchors_code}
-              const eventSrc = new EventSource('{url_for("update_log")}');
-              const ctrlTagColor = {json.dumps(ctrl_tag_color)};
-              eventSrc.onmessage = e => {{
-                const result = e.data.match(/\\[.*?\\]/)
-                if (result) {{
-                    const [data, time, ctrl] = JSON.parse(result[0]);
-                    if (typeof data === 'string') return;
-                    const tx = data.x*{scale} + {marg};
-                    const ty = {height} - data.y*{scale} + {marg};
-                    ctx.fillStyle = ctrlTagColor[ctrl][data.i];
-                    ctx.fillRect(tx, ty, 10, 10);
-                    ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-10);
-                }}
-              }}
-            </script>
-            """
+        return render_template(
+            "view.html",
+            anchors_code=json.dumps(anchors),
+            ctrl_tag_color_code=json.dumps(ctrl_tag_color),
+            marg=marg,
+            scale=scale,
+            update_url=url_for("update_log"),
+        )
 
     return app
 
@@ -294,7 +239,8 @@ def main():
     init_logger(que)
     conf = get_config()
     cloud_client = AWSClient(**conf['cloud']['aws'], publisher=False)
-    app = init_webapp(sse_handler, cloud_client)
+    ctrls = ("rpi1", "rpi2", "rpi3", "alduin")
+    app = init_webapp(sse_handler, cloud_client, ctrls)
     out_dir = Path(conf['global']['out_dir'])
     subscriptions = ['location', 'error', 'debug']
     types = ['json', 'str', 'str']

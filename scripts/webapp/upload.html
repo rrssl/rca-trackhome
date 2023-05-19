@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<title>Upload config file</title>
+<h1>Upload config file</h1>
+<form method=post enctype=multipart/form-data>
+  <input type=file accept="application/json" name=config>
+  <select name=device>
+    {% for ctrl in ctrls %}
+    <option value="{{ ctrl }}">{{ ctrl }}</option>
+    {% endfor %}
+  </select>
+  <input type=submit value=Upload>
+</form>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<title>Live view</title>
+<h1>Live view</h1>
+<canvas id="view" width="10" height="10">
+</canvas>
+<script>
+  function createView(anchors, scale, margin, dotSize, ctrlTagColor) {
+    const canvas = document.getElementById('view');
+    const ctx = canvas.getContext('2d');
+    // Dimensions
+    const width = Math.floor(
+      Math.max(...Object.values(anchors).map(xyz => xyz[0])) * scale
+    );
+    canvas.width = width + 2*margin;
+    const height = Math.floor(
+      Math.max(...Object.values(anchors).map(xyz => xyz[1])) * scale
+    );
+    canvas.height = height + 2*margin;
+    // Background
+    ctx.fillStyle = 'rgba(240, 240, 240, 1)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Anchors
+    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+    Object.entries(anchors).forEach(([name, xyz]) => {
+      x_view = Math.floor(xyz[0] * scale) + margin;
+      y_view = height - Math.floor(xyz[1] * scale) + margin;
+      ctx.fillRect(x_view, y_view, dotSize, dotSize);
+      ctx.fillText(name, x_view-dotSize, y_view-dotSize);
+    });
+    // Live updates
+    const eventSrc = new EventSource('{{ update_url }}');
+    eventSrc.onmessage = e => {
+      const result = e.data.match(/\[.*?\]/)
+      if (result) {
+        const [data, time, ctrl] = JSON.parse(result[0]);
+        if (typeof data === 'string') return;
+        const tx = data.x*scale + margin;
+        const ty = height - data.y*scale + margin;
+        ctx.fillStyle = ctrlTagColor[ctrl][data.i];
+        ctx.fillRect(tx, ty, dotSize, dotSize);
+        ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-dotSize);
+      }
+    }
+  }
+  const anchors = {{ anchors_code|safe }};
+  const scale = {{ scale }};
+  const margin = {{ marg }};
+  const dotSize = 10;
+  const ctrlTagColor = {{ ctrl_tag_color_code|safe }};
+  createView(anchors, scale, margin, dotSize, ctrlTagColor);
+</script>
+</html>
