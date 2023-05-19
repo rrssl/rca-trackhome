@@ -1,12 +1,15 @@
 <!doctype html>
 <html lang="en">
 <title>Live view</title>
+<style>
+  canvas {margin: 5px;}
+</style>
 <h1>Live view</h1>
-<canvas id="view" width="10" height="10">
-</canvas>
 <script>
-  function createView(anchors, scale, margin, dotSize, ctrlTagColor) {
-    const canvas = document.getElementById('view');
+  function createView(floor, anchors, scale, margin, dotSize, ctrlTagColor) {
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    canvas.id = `view-${floor}`;
     const ctx = canvas.getContext('2d');
     // Dimensions
     const width = Math.floor(
@@ -20,8 +23,9 @@
     // Background
     ctx.fillStyle = 'rgba(240, 240, 240, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Anchors
     ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+    ctx.fillText(floor.toUpperCase(), 5, 15);
+    // Anchors
     Object.entries(anchors).forEach(([name, xyz]) => {
       x_view = Math.floor(xyz[0] * scale) + margin;
       y_view = height - Math.floor(xyz[1] * scale) + margin;
@@ -29,25 +33,42 @@
       ctx.fillText(name, x_view-dotSize, y_view-dotSize);
     });
     // Live updates
-    const eventSrc = new EventSource('{{ update_url }}');
-    eventSrc.onmessage = e => {
-      const result = e.data.match(/\[.*?\]/)
-      if (result) {
-        const [data, time, ctrl] = JSON.parse(result[0]);
-        if (typeof data === 'string') return;
-        const tx = data.x*scale + margin;
-        const ty = height - data.y*scale + margin;
-        ctx.fillStyle = ctrlTagColor[ctrl][data.i];
-        ctx.fillRect(tx, ty, dotSize, dotSize);
-        ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-dotSize);
-      }
-    }
   }
   const anchors = {{ anchors_code|safe }};
+  const floors = {{ floors_code|safe }};
   const scale = {{ scale }};
-  const margin = {{ marg }};
+  const margin = {{ margin }};
   const dotSize = 10;
   const ctrlTagColor = {{ ctrl_tag_color_code|safe }};
-  createView(anchors, scale, margin, dotSize, ctrlTagColor);
+  for (const [floor_name, floor_list] of Object.entries(floors)) {
+    // NB: This one-liner uses the 'comma operator'.
+    floor_anchors = floor_list.reduce((o, e) => (o[e] = anchors[e], o), {});
+    createView(floor_name, floor_anchors, scale, margin, dotSize, ctrlTagColor);
+  }
+  const floorHeight = {{ floor_height }};
+  const eventSrc = new EventSource('{{ update_url }}');
+  eventSrc.onmessage = e => {
+    const result = e.data.match(/\[.*?\]/)
+    if (result) {
+      const [data, time, ctrl] = JSON.parse(result[0]);
+      if (typeof data === 'string') return;
+      // Determine the floor.
+      const floor_names = Object.keys(floors);
+      let floor;
+      if (floor_names.length > 1) {
+        floor = floor_names[Math.floor(Math.max(data.z, 0) / floorHeight)];
+      } else {
+        floor = floor_names[0];
+      }
+      const canvas = document.getElementById(`view-${floor}`);
+      const ctx = canvas.getContext('2d');
+      // Draw the point.
+      const tx = data.x*scale + margin;
+      const ty = canvas.height - data.y*scale - margin;  // - 2*margin + margin
+      ctx.fillStyle = ctrlTagColor[ctrl][data.i];
+      ctx.fillRect(tx, ty, dotSize, dotSize);
+      ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-dotSize);
+    }
+  }
 </script>
 </html>

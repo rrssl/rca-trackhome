@@ -16,6 +16,15 @@ TRACKING_SCHEMA = {
             },
             'additionalProperties': False
         },
+        'floors': {
+            'type': "object",
+            'additionalProperties': {
+                'type': "array",
+                'items': {'type': "string", 'pattern': HEX_PATTERN},
+                'minItems': 1,
+                'uniqueItems': True
+            }
+        },
         'tags': {
             'type': "array",
             'items': {'type': "string", 'pattern': HEX_PATTERN},

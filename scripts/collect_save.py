@@ -166,6 +166,7 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
             client.publish(f"config/{device}", json.dumps(config))
             return f"""
                 <!doctype html>
+                <title>Upload config file</title>
                 <p>Config successfully sent to {device}!</p>
                 <pre>{json.dumps(config, indent=4)}</pre>
                 """
@@ -192,10 +193,14 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
                 <a href={url_for('upload_page')}>configuration</a>
                 first.
                 """
+        floor_height = 2800
         scale = .1
-        marg = 50
+        margin = 50
         # Prepare the code for the anchors.
         anchors = app.config['TRACKING']['anchors']
+        floors = app.config['TRACKING'].get(
+            'floors', {'main': list(anchors.keys())}
+        )
         # Prepare the color mapping for the tags and controllers.
         tags = app.config['TRACKING']['tags']
         ctrl_tag_color = {}
@@ -210,7 +215,9 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
             "view.html",
             anchors_code=json.dumps(anchors),
             ctrl_tag_color_code=json.dumps(ctrl_tag_color),
-            marg=marg,
+            floors_code=json.dumps(floors),
+            floor_height=floor_height,
+            margin=margin,
             scale=scale,
             update_url=url_for("update_log"),
         )
