@@ -6,10 +6,10 @@
 <script>
   const logDiv = document.getElementById('log');
   const eventSrc = new EventSource('{{ update_url }}');
-  eventSrc.onmessage = e => {{
+  eventSrc.onmessage = e => {
     const pre = document.createElement('pre');
     pre.innerHTML = e.data;
     logDiv.append(pre);
-  }}
+  }
 </script>
 </html>
