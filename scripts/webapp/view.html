@@ -52,6 +52,7 @@
     if (result) {
       const [data, time, ctrl] = JSON.parse(result[0]);
       if (typeof data === 'string') return;
+      if (!(data.i in ctrlTagColor[ctrl])) return;
       // Determine the floor.
       const floor_names = Object.keys(floors);
       let floor;
