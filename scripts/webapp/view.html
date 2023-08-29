@@ -2,14 +2,56 @@
 <html lang="en">
 <title>Live view</title>
 <style>
-  canvas {margin: 5px;}
+  canvas {
+    margin: 5px;
+  }
+  .tabbar {
+    overflow: hidden;
+    border: 1px solid #ccc;
+    background-color: #f1f1f1;
+  }
+  .tabbar button {
+    background-color: inherit;
+    float: left;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 14px 16px;
+    transition: 0.3s;
+  }
+  .tabbar button:hover {
+    background-color: #ddd;
+  }
+  .tabbar button.active {
+    background-color: #ccc;
+  }
 </style>
 <h1>Live view</h1>
+<div id="mainbar" class="tabbar"></div>
 <script>
-  function createView(floor, anchors, scale, margin, dotSize, ctrlTagColor) {
+  function createTab(name) {
+    const button = document.createElement('button');
+    button.innerText = name;
+    button.classList.add('tabbutton');
+    button.onclick = e => openTab(e, name);
+    document.getElementById('mainbar').appendChild(button);
+    const tab = document.createElement('div');
+    tab.id = name;
+    tab.classList.add('tabcontent');
+    document.body.appendChild(tab);
+  }
+  function openTab(event, name) {
+    const tabContents = document.getElementsByClassName('tabcontent');
+    for (tc of tabContents) tc.style.display = 'none';
+    const tabButtons = document.getElementsByClassName('tabbutton');
+    for (tb of tabButtons) tb.classList.remove('active');
+    document.getElementById(name).style.display = 'block';
+    event.currentTarget.classList.add('active');
+  }
+  function createView(ctrl, floor, anchors, scale, margin, dotSize) {
     const canvas = document.createElement('canvas');
-    document.body.appendChild(canvas);
-    canvas.id = `view-${floor}`;
+    document.getElementById(ctrl).appendChild(canvas);
+    canvas.id = `view-${ctrl}-${floor}`;
     const ctx = canvas.getContext('2d');
     // Dimensions
     const width = Math.floor(
@@ -32,41 +74,47 @@
       ctx.fillRect(x_view, y_view, dotSize, dotSize);
       ctx.fillText(name, x_view-dotSize, y_view-dotSize);
     });
-    // Live updates
   }
-  const anchors = {{ anchors_code|safe }};
-  const floors = {{ floors_code|safe }};
+  const ctrlConfigs = {{ ctrl_configs_code|safe }};
   const scale = {{ scale }};
   const margin = {{ margin }};
   const dotSize = 10;
-  const ctrlTagColor = {{ ctrl_tag_color_code|safe }};
-  for (const [floor_name, floor_list] of Object.entries(floors)) {
-    // NB: This one-liner uses the 'comma operator'.
-    floor_anchors = floor_list.reduce((o, e) => (o[e] = anchors[e], o), {});
-    createView(floor_name, floor_anchors, scale, margin, dotSize, ctrlTagColor);
+  for (const [ctrl, ctrlConfig] of Object.entries(ctrlConfigs)) {
+    createTab(ctrl);
+    const anchors = ctrlConfig['anchors'];
+    const floors = ctrlConfig['floors'];
+    for (const [floorName, floorList] of Object.entries(floors)) {
+      // NB: This one-liner uses the 'comma operator'.
+      floorAnchors = floorList.reduce((o, e) => (o[e] = anchors[e], o), {});
+      createView(
+        ctrl, floorName, floorAnchors, scale, margin, dotSize
+      );
+    }
   }
   const floorHeight = {{ floor_height }};
   const eventSrc = new EventSource('{{ update_url }}');
   eventSrc.onmessage = e => {
-    const result = e.data.match(/\[.*?\]/)
+    const result = e.data.match(/\[.*?\]/);
     if (result) {
       const [data, time, ctrl] = JSON.parse(result[0]);
       if (typeof data === 'string') return;
-      if (!(data.i in ctrlTagColor[ctrl])) return;
+      const config = ctrlConfigs[ctrl];
+      if (!(data.i in config['colors'])) return;
       // Determine the floor.
-      const floor_names = Object.keys(floors);
+      const floorNames = Object.keys(config['floors']);
       let floor;
-      if (floor_names.length > 1) {
-        floor = floor_names[Math.floor(Math.max(data.z, 0) / floorHeight)];
+      if (floorNames.length > 1) {
+        floor = floorNames[Math.floor(Math.max(data.z, 0) / floorHeight)];
       } else {
-        floor = floor_names[0];
+        floor = floorNames[0];
       }
-      const canvas = document.getElementById(`view-${floor}`);
+      // Get the right canvas.
+      const canvas = document.getElementById(`view-${ctrl}-${floor}`);
       const ctx = canvas.getContext('2d');
       // Draw the point.
       const tx = data.x*scale + margin;
       const ty = canvas.height - data.y*scale - margin;  // - 2*margin + margin
-      ctx.fillStyle = ctrlTagColor[ctrl][data.i];
+      ctx.fillStyle = config['colors'][data.i];
       ctx.fillRect(tx, ty, dotSize, dotSize);
       ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-dotSize);
     }

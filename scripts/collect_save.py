@@ -119,9 +119,13 @@ def init_logger(que: Queue = None):
         root_logger.addHandler(queue_handler)
 
 
-def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
+def init_webapp(
+    log_handler: SSEHandler,
+    client: AWSClient,
+    ctrl_list: tuple[str]
+):
     app = Flask(__name__, template_folder="webapp")
-    app.config['TRACKING'] = {}
+    app.config['TRACKING'] = {}  # maps controller to tracking config
 
     @app.route("/log")
     def log_page():
@@ -160,9 +164,9 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
                 app.config['ERROR_REASON'] = e.message
                 return redirect('upload-error')
             # Save the config for visualization purposes.
-            app.config['TRACKING'] = config.copy()
-            # Send the config.
             device = request.form['device']
+            app.config['TRACKING'][device] = config.copy()
+            # Send the config.
             client.publish(f"config/{device}", json.dumps(config))
             return f"""
                 <!doctype html>
@@ -170,7 +174,7 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
                 <p>Config successfully sent to {device}!</p>
                 <pre>{json.dumps(config, indent=4)}</pre>
                 """
-        return render_template("upload.html", ctrls=ctrls)
+        return render_template("upload.html", ctrls=ctrl_list)
 
     @app.route("/upload-error")
     def upload_error_page():
@@ -189,33 +193,35 @@ def init_webapp(log_handler: SSEHandler, client: AWSClient, ctrls: tuple[str]):
                 <!doctype html>
                 <title>Live view</title>
                 <h1>Live view</h1>
-                Please upload the
+                Please upload a
                 <a href={url_for('upload_page')}>configuration</a>
                 first.
                 """
         floor_height = 2800
         scale = .1
         margin = 50
-        # Prepare the code for the anchors.
-        anchors = app.config['TRACKING']['anchors']
-        floors = app.config['TRACKING'].get(
-            'floors', {'main': list(anchors.keys())}
-        )
-        # Prepare the color mapping for the tags and controllers.
-        tags = app.config['TRACKING']['tags']
-        ctrl_tag_color = {}
-        for i, ctrl in enumerate(ctrls):
-            tag_color = {}
-            for j, tag in enumerate(tags):
+        # Prepare the data for each controller's configuration.
+        ctrl_configs = {}
+        for ctrl, ctrl_config in app.config['TRACKING'].items():
+            ctrl_configs[ctrl] = {}
+            # Anchors
+            ctrl_configs[ctrl]['anchors'] = ctrl_config['anchors']
+            # Floors
+            ctrl_configs[ctrl]['floors'] = app.config['TRACKING'].get(
+                'floors', {'main': list(ctrl_config['anchors'].keys())}
+            )
+            # Color mapping
+            tag_colors = {}
+            for j, tag in enumerate(ctrl_config['tags']):
+                # This assumes never more than 3 tags per controller.
+                # Otherwise, colors should be sampled in HSV space instead.
                 col = [10, 10, 10]
-                col[j] = 255 // ((i % 3) + 1)
-                tag_color[tag] = f"rgba({col[0]}, {col[1]}, {col[2]}, 0.8)"
-            ctrl_tag_color[ctrl] = tag_color
+                col[j] = 255
+                tag_colors[tag] = f"rgba({col[0]}, {col[1]}, {col[2]}, 0.8)"
+            ctrl_configs[ctrl]['colors'] = tag_colors
         return render_template(
             "view.html",
-            anchors_code=json.dumps(anchors),
-            ctrl_tag_color_code=json.dumps(ctrl_tag_color),
-            floors_code=json.dumps(floors),
+            ctrl_configs_code=json.dumps(ctrl_configs),
             floor_height=floor_height,
             margin=margin,
             scale=scale,
@@ -246,8 +252,8 @@ def main():
     init_logger(que)
     conf = get_config()
     cloud_client = AWSClient(**conf['cloud']['aws'], publisher=False)
-    ctrls = ("rpi1", "rpi2", "rpi3", "alduin")
-    app = init_webapp(sse_handler, cloud_client, ctrls)
+    ctrl_list = ("rpi1", "rpi2", "rpi3")
+    app = init_webapp(sse_handler, cloud_client, ctrl_list)
     out_dir = Path(conf['global']['out_dir'])
     subscriptions = ['location', 'error', 'debug']
     types = ['json', 'str', 'str']
