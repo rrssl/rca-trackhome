@@ -207,7 +207,7 @@ def init_webapp(
             # Anchors
             ctrl_configs[ctrl]['anchors'] = ctrl_config['anchors']
             # Floors
-            ctrl_configs[ctrl]['floors'] = app.config['TRACKING'].get(
+            ctrl_configs[ctrl]['floors'] = ctrl_config.get(
                 'floors', {'main': list(ctrl_config['anchors'].keys())}
             )
             # Color mapping

@@ -38,6 +38,7 @@
     const tab = document.createElement('div');
     tab.id = name;
     tab.classList.add('tabcontent');
+    tab.style.display = 'none';
     document.body.appendChild(tab);
   }
   function openTab(event, name) {
@@ -98,6 +99,7 @@
     if (result) {
       const [data, time, ctrl] = JSON.parse(result[0]);
       if (typeof data === 'string') return;
+      if (!(ctrl in ctrlConfigs)) return;
       const config = ctrlConfigs[ctrl];
       if (!(data.i in config['colors'])) return;
       // Determine the floor.
@@ -116,7 +118,7 @@
       const ty = canvas.height - data.y*scale - margin;  // - 2*margin + margin
       ctx.fillStyle = config['colors'][data.i];
       ctx.fillRect(tx, ty, dotSize, dotSize);
-      ctx.fillText(data.i+'/'+ctrl.slice(-1), tx-15, ty-dotSize);
+      ctx.fillText(data.i, tx-15, ty-dotSize);
     }
   }
 </script>
