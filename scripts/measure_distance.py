@@ -6,6 +6,8 @@ the other Pozyx device.
 This demo measures the range between the two devices.
 
 """
+import time
+
 from pypozyx import (PozyxSerial, PozyxConstants, SingleRegister, NetworkID,
                      DeviceRange, POZYX_SUCCESS, get_first_pozyx_serial_port)
 
@@ -30,7 +32,7 @@ def main():
     # remote_id = 0x7625
     # ID of the tag to which the distance is measured. It can be the master tag
     # as long as remote tag is selected to perform the ranging.
-    destination_id = 0x7625
+    destination_id = 0x681e
     # destination_id = 0x764c
     # The ranging protocol. Alternative: PozyxConstants.RANGE_PROTOCOL_FAST
     ranging_protocol = PozyxConstants.RANGE_PROTOCOL_PRECISION
@@ -61,6 +63,7 @@ def main():
         else:
             error = get_master_error(pozyx)
             print(error if error else "Unknown error")
+        time.sleep(1)
 
 
 if __name__ == "__main__":

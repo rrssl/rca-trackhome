@@ -8,8 +8,6 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 
-# import numpy as np
-import pypozyx as px
 import yaml
 
 from trkpy import track
@@ -189,8 +187,8 @@ def main():
     conf = get_config()
     data_dir = conf['global']['data_dir']
     profile_path = data_dir / conf['profile']
-    pos_dim = getattr(px.PozyxConstants, conf['tracking']['pos_dim'])
-    pos_algo = getattr(px.PozyxConstants, conf['tracking']['pos_algo'])
+    pos_dim = conf['tracking']['pos_dim']
+    pos_algo = conf['tracking']['pos_algo']
     timeout = 1
     tracker = Tracker(profile_path, pos_dim, pos_algo, timeout)
     pos_period = conf['interval']
@@ -206,17 +204,9 @@ def main():
             loop_cnt += 1
             tracker.loop()
             t_elapsed = time.time() - t_start
-            time.sleep(pos_period - t_elapsed)
+            time.sleep(max(0, pos_period - t_elapsed))
     except KeyboardInterrupt:
         logging.info("Exiting.")
-        # if args.save:
-        #     pos_data = np.single(pos_data)
-        #     file_name = (
-        #         f"recording{datetime.now().strftime('_%Y%m%d%H%M%S')}-"
-        #         f"{args.profile}.npy"
-        #     )
-        #     file_path = data_dir / file_name
-        #     np.save(file_path, pos_data)
 
 
 if __name__ == "__main__":
