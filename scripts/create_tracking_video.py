@@ -118,7 +118,7 @@ def main():
         interp_period=target_period
     )
     # Define the points' colors.
-    cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive']))
+    cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive', 'tab:cyan']))
     record['c'] = record.index.get_level_values('i').map(cmap)
     # Create the first frame.
     plt.rcParams['figure.facecolor'] = 'black'
@@ -178,7 +178,7 @@ def main():
     #     lw=1,
     #     zorder=4
     # )
-    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='axes fraction')
+    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='figure fraction')
     fig.tight_layout()
     updater = get_plot_updater(
         tag_plots,
