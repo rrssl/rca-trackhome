@@ -1,8 +1,10 @@
 """Script to check whether the AWS server is reachable."""
-import platform    # For getting the operating system name
-import subprocess  # For executing a shell command
+import platform
+import subprocess
 import tkinter as tk
+from collections import deque
 from tkinter.scrolledtext import ScrolledText
+from threading import Thread
 
 
 def append_readonly_output(text_area, text):
@@ -11,7 +13,16 @@ def append_readonly_output(text_area, text):
     text_area.configure(state='disabled')
 
 
-def run_connectivity_test(window, input_field, output_area):
+def update_output_area(window, output_area, message_queue):
+    try:
+        text = message_queue.popleft()
+        append_readonly_output(output_area, text)
+    except IndexError:
+        pass
+    window.after(500, update_output_area, window, output_area, message_queue)
+
+
+def run_connectivity_test(input_field, message_queue):
     param = "-n" if platform.system().lower() == "windows" else "-c"
     command = ["ping", param, "3", input_field.get()]
     with subprocess.Popen(
@@ -20,11 +31,21 @@ def run_connectivity_test(window, input_field, output_area):
         stderr=subprocess.STDOUT
     ) as process:
         for line in process.stdout:
-            append_readonly_output(output_area, line.decode())
-        # window.after(10, update_process_output, window, process, output_area)
+            message_queue.append(line.decode())
+
+
+def run_connectivity_test_thread(input_field, message_queue):
+    thread = Thread(
+        target=run_connectivity_test,
+        args=(input_field, message_queue),
+        daemon=True
+    )
+    thread.start()
 
 
 def main():
+    # Communication between threads.
+    msg_queue = deque()
     # GUI
     window = tk.Tk()
     window.title("AWS Connectivity test")
@@ -37,11 +58,12 @@ def main():
     action_btn = tk.Button(
         window,
         text="Run test",
-        command=lambda: run_connectivity_test(window, input_field, output_area)
+        command=lambda: run_connectivity_test_thread(input_field, msg_queue)
     )
     action_btn.pack()
     output_area.pack()
     # Run the GUI event loop.
+    window.after(500, update_output_area, window, output_area, msg_queue)
     window.mainloop()
 
 
