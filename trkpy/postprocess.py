@@ -54,12 +54,12 @@ def get_recording(
         ].index)
         # First denoise by averaging over time windows.
         tag_record = tag_record[['x', 'y', 'z']].resample(
-            f'{denoise_period}S'
+            f'{denoise_period}s'
         ).mean().dropna()
         # Then interpolate to match the target period.
         if interp_period is not None:
             tag_record = tag_record[['x', 'y', 'z']].resample(
-                f'{interp_period}S'
+                f'{interp_period}s'
             ).interpolate('time', limit=2).dropna()
         # Save records.
         tag_record['i'] = tag

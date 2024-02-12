@@ -175,7 +175,7 @@ def main():
     frames = pd.date_range(
         record.index[0][0],
         record.index[-1][0],
-        freq=f'{target_period}S'
+        freq=f'{target_period}s'
     )
     frames = frames[
         frames.indexer_between_time(*profile['time_range'])
