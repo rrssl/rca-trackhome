@@ -118,7 +118,12 @@ def init_figure_and_plots(
     plot_background(ax, floorplan_img, anchors)
     frames = create_frames(recording, profile, conf, target_period)
     tag_plots = create_tag_plots(ax, recording, profile)
-    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='figure fraction')
+    time_plot = ax.annotate(
+        frames[0].strftime("%a %H:%M"),
+        (.03, .06),
+        xycoords='figure fraction',
+        fontsize=24
+    )
     if conf['show_trace']:
         trace_plot = create_trace_plot(ax, recording)
     else:
@@ -188,7 +193,7 @@ def create_trace_plot(ax, recording):
 
 def get_plot_updater(tag_plots, recording, time_plot, trace_plot):
     def update(frame):
-        time_plot.set_text(frame)
+        time_plot.set_text(frame.strftime("%a %H:%M"))
         for tag, tag_plot in tag_plots.items():
             try:
                 row = recording.loc[(frame, tag)]
