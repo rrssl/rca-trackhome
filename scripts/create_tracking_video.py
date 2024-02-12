@@ -105,22 +105,102 @@ def prepare_recording(
     return record
 
 
-def get_plot_updater(tag_plots, record, time_plot, trace_plot):
+def init_figure_and_plots(
+    floorplan_img,
+    anchors,
+    recording,
+    target_period,
+    profile,
+    conf
+):
+    plt.rcParams['figure.facecolor'] = 'black'
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
+    plot_background(ax, floorplan_img, anchors)
+    frames = create_frames(recording, profile, conf, target_period)
+    tag_plots = create_tag_plots(ax, recording, profile)
+    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='figure fraction')
+    if conf['show_trace']:
+        trace_plot = create_trace_plot(ax, recording)
+    else:
+        trace_plot = None
+    fig.tight_layout()
+    return fig, frames, tag_plots, time_plot, trace_plot
+
+
+def plot_background(ax, floorplan_img, anchors):
+    ax.set_axis_off()
+    ax.imshow(np.asarray(floorplan_img), zorder=2)
+    ax.scatter(anchors['xi'], anchors['yi'], marker='s', s=10, zorder=3)
+    for name, anchor in anchors.iterrows():
+        ax.annotate(
+            name,
+            (anchor['xi'], anchor['yi']),
+            xytext=(5, 5),
+            textcoords='offset pixels',
+            path_effects=[pe.withStroke(linewidth=2, foreground='w')],
+            fontsize=4
+        )
+
+
+def create_frames(recording, profile, conf, target_period):
+    frames = pd.date_range(
+        recording.index[0][0],
+        recording.index[-1][0],
+        freq=f'{target_period}s'
+    )
+    frames = frames[
+        frames.indexer_between_time(*profile['time_range'])
+    ].copy()
+    if conf['frames'] is not None:
+        frames = frames[:conf['frames']]
+    return frames
+
+
+def create_tag_plots(ax, recording, profile):
+    tag_plots = {}
+    for tag in profile['tags']:
+        tag_first_record = recording.xs(tag, level='i').iloc[0]
+        tag_plots[tag] = ax.scatter(
+            tag_first_record['x'],
+            tag_first_record['y'],
+            c=tag_first_record['c'],
+            alpha=.8,
+            edgecolor='k',
+            lw=.5,
+            s=50,
+            zorder=5
+        )
+    return tag_plots
+
+
+def create_trace_plot(ax, recording):
+    trace_plot = ax.scatter(
+        recording.iloc[0]['x'],
+        recording.iloc[0]['y'],
+        c=recording.iloc[0]['c'],
+        alpha=.1,
+        edgecolor='none',
+        s=20,
+        zorder=4
+    )
+    return trace_plot
+
+
+def get_plot_updater(tag_plots, recording, time_plot, trace_plot):
     def update(frame):
         time_plot.set_text(frame)
         for tag, tag_plot in tag_plots.items():
             try:
-                row = record.loc[(frame, tag)]
+                row = recording.loc[(frame, tag)]
             except KeyError:
                 tag_plot.set_alpha(.2)
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
             tag_plot.set_alpha(.8)
         if trace_plot is not None:
-            trace = record.loc[:frame]
+            trace = recording.loc[:frame]
             trace_plot.set_offsets(trace[['x', 'y']])
             trace_plot.set_facecolor(trace['c'])
-        # line_plot.set_data(data['x'].iloc[:fid+1], data['y'].iloc[:fid+1])
     return update
 
 
@@ -157,66 +237,15 @@ def main():
         target_period,
         colors
     )
-    # Create the first frame.
-    plt.rcParams['figure.facecolor'] = 'black'
-    fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
-    ax.set_axis_off()
-    ax.imshow(np.asarray(floorplan_img), zorder=2)
-    ax.scatter(anchors['xi'], anchors['yi'], marker='s', s=10, zorder=3)
-    for name, anchor in anchors.iterrows():
-        ax.annotate(
-            name,
-            (anchor['xi'], anchor['yi']),
-            xytext=(5, 5),
-            textcoords='offset pixels',
-            path_effects=[pe.withStroke(linewidth=2, foreground='w')],
-            fontsize=4
-        )
-    frames = pd.date_range(
-        record.index[0][0],
-        record.index[-1][0],
-        freq=f'{target_period}s'
+    # Render.
+    fig, frames, tag_plots, time_plot, trace_plot = init_figure_and_plots(
+        floorplan_img,
+        anchors,
+        record,
+        target_period,
+        profile,
+        conf
     )
-    frames = frames[
-        frames.indexer_between_time(*profile['time_range'])
-    ].copy()
-    if conf['frames'] is not None:
-        frames = frames[:conf['frames']]
-    tag_plots = {}
-    for tag in profile['tags']:
-        tag_first_record = record.xs(tag, level='i').iloc[0]
-        tag_plots[tag] = ax.scatter(
-            tag_first_record['x'],
-            tag_first_record['y'],
-            c=tag_first_record['c'],
-            alpha=.8,
-            edgecolor='k',
-            lw=.5,
-            s=50,
-            zorder=5
-        )
-    if conf['show_trace']:
-        trace_plot = ax.scatter(
-            record.iloc[0]['x'],
-            record.iloc[0]['y'],
-            c=record.iloc[0]['c'],
-            alpha=.1,
-            edgecolor='none',
-            s=20,
-            zorder=4
-        )
-    else:
-        trace_plot = None
-    # pos_line_plot, = ax.plot(
-    #     data['x'],
-    #     data['y'],
-    #     c='tab:pink',
-    #     alpha=.2,
-    #     lw=1,
-    #     zorder=4
-    # )
-    time_plot = ax.annotate(frames[0], (.03, .06), xycoords='figure fraction')
-    fig.tight_layout()
     updater = get_plot_updater(
         tag_plots,
         record,
