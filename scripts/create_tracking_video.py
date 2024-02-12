@@ -79,6 +79,32 @@ def get_config():
     return conf
 
 
+def get_recording_row_colors(recording, tags, colors):
+    cmap = dict(zip(tags, colors))
+    return recording.index.get_level_values('i').map(cmap)
+
+
+def prepare_recording(
+    record_path,
+    profile,
+    anchors,
+    target_period,
+    tag_colors
+):
+    record = postprocess.get_recording(
+        record_path,
+        profile,
+        anchors,
+        interp_period=target_period
+    )
+    record['c'] = get_recording_row_colors(
+        record,
+        profile['tags'],
+        colors=tag_colors
+    )
+    return record
+
+
 def get_plot_updater(tag_plots, record, time_plot, trace_plot):
     def update(frame):
         time_plot.set_text(frame)
@@ -98,6 +124,18 @@ def get_plot_updater(tag_plots, record, time_plot, trace_plot):
     return update
 
 
+def render_anim_to_file(ani, conf):
+    bar = tqdm(total=ani._save_count)
+    # metadata = dict(title='Movie Test', artist='Matplotlib',
+    #                 comment='Some comment')
+    video_path = conf['global']['out_dir'] / conf['video']
+    ani.save(
+        video_path,
+        writer='ffmpeg',
+        progress_callback=lambda i, n: bar.update()
+    )
+
+
 def main():
     conf = get_config()
     data_dir = conf['global']['data_dir']
@@ -111,15 +149,14 @@ def main():
     anchors = postprocess.get_anchors(profile)
     target_period = conf['speed'] // conf['fps']
     assert target_period >= 1, "Speed must be higher than the FPS"
-    record = postprocess.get_recording(
+    colors = ['tab:pink', 'tab:olive', 'tab:cyan']
+    record = prepare_recording(
         record_path,
         profile,
         anchors,
-        interp_period=target_period
+        target_period,
+        colors
     )
-    # Define the points' colors.
-    cmap = dict(zip(profile['tags'], ['tab:pink', 'tab:olive', 'tab:cyan']))
-    record['c'] = record.index.get_level_values('i').map(cmap)
     # Create the first frame.
     plt.rcParams['figure.facecolor'] = 'black'
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
@@ -194,16 +231,8 @@ def main():
     )
     if conf['video'] is None:
         plt.show()
-        return
-    bar = tqdm(total=len(frames))
-    # metadata = dict(title='Movie Test', artist='Matplotlib',
-    #                 comment='a red circle following a blue sine wave')
-    video_path = conf['global']['out_dir'] / conf['video']
-    ani.save(
-        video_path,
-        writer='ffmpeg',
-        progress_callback=lambda i, n: bar.update()
-    )
+    else:
+        render_anim_to_file(ani, conf)
 
 
 if __name__ == "__main__":
