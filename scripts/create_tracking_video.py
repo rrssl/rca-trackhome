@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 # import pandasgui
 import yaml
+from matplotlib.widgets import Slider
 from PIL import Image
 from tqdm import tqdm
 
@@ -115,7 +116,7 @@ def init_figure_and_plots(
 ):
     plt.rcParams['figure.facecolor'] = 'black'
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
-    plot_background(ax, floorplan_img, anchors)
+    anchor_plot = plot_background(ax, floorplan_img, anchors)
     frames = create_frames(recording, profile, conf, target_period)
     tag_plots = create_tag_plots(ax, recording, profile)
     time_plot = ax.annotate(
@@ -129,22 +130,29 @@ def init_figure_and_plots(
     else:
         trace_plot = None
     fig.tight_layout()
-    return fig, frames, tag_plots, time_plot, trace_plot
+    return fig, frames, anchor_plot, tag_plots, time_plot, trace_plot
 
 
 def plot_background(ax, floorplan_img, anchors):
     ax.set_axis_off()
     ax.imshow(np.asarray(floorplan_img), zorder=2)
-    ax.scatter(anchors['xi'], anchors['yi'], marker='s', s=10, zorder=3)
-    for name, anchor in anchors.iterrows():
-        ax.annotate(
-            name,
-            (anchor['xi'], anchor['yi']),
-            xytext=(5, 5),
-            textcoords='offset pixels',
-            path_effects=[pe.withStroke(linewidth=2, foreground='w')],
-            fontsize=4
-        )
+    anchor_plot = ax.scatter(
+        anchors['xi'],
+        anchors['yi'],
+        marker='s',
+        s=10,
+        zorder=3
+    )
+    # for name, anchor in anchors.iterrows():
+    #     ax.annotate(
+    #         name,
+    #         (anchor['xi'], anchor['yi']),
+    #         xytext=(5, 5),
+    #         textcoords='offset pixels',
+    #         path_effects=[pe.withStroke(linewidth=2, foreground='w')],
+    #         fontsize=4
+    #     )
+    return anchor_plot
 
 
 def create_frames(recording, profile, conf, target_period):
@@ -191,9 +199,8 @@ def create_trace_plot(ax, recording):
     return trace_plot
 
 
-def get_plot_updater(tag_plots, recording, time_plot, trace_plot):
+def get_plot_updater(recording, tag_plots, time_plot, trace_plot):
     def update(frame):
-        time_plot.set_text(frame.strftime("%a %H:%M"))
         for tag, tag_plot in tag_plots.items():
             try:
                 row = recording.loc[(frame, tag)]
@@ -202,11 +209,41 @@ def get_plot_updater(tag_plots, recording, time_plot, trace_plot):
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
             tag_plot.set_alpha(.8)
+        time_plot.set_text(frame.strftime("%a %H:%M"))
         if trace_plot is not None:
             trace = recording.loc[:frame]
             trace_plot.set_offsets(trace[['x', 'y']])
             trace_plot.set_facecolor(trace['c'])
     return update
+
+
+def create_controls(fig, parameters, anchor_plot):
+    ax = fig.add_subplot(5, 1, 5)
+    controls = {}
+    i = 0
+    controls['x'] = Slider(
+        ax=ax,
+        label='x',
+        valmin=parameters[i]-100,
+        valmax=parameters[i]+100,
+        valinit=parameters[i],
+    )
+    controls['x'].on_changed(
+        get_anchor_updater(fig, parameters, i, anchor_plot)
+    )
+    return controls
+
+
+def get_anchor_updater(fig, profile, transform_param, anchor_plot):
+    def update_anchors(value):
+        profile['transforms']['main'][transform_param] = value
+        anchors = postprocess.get_anchors(profile)
+        update_anchor_plot(anchors, anchor_plot)
+        fig.canvas.draw_idle()
+
+
+def update_anchor_plot(anchors, anchor_plot):
+    anchor_plot.set_offsets(anchors[['xi', 'yi']])
 
 
 def render_anim_to_file(ani, conf):
@@ -243,7 +280,7 @@ def main():
         colors
     )
     # Render.
-    fig, frames, tag_plots, time_plot, trace_plot = init_figure_and_plots(
+    fig, frames, anchor_plot, tag_plots, time_plot, trace_plot = init_figure_and_plots(
         floorplan_img,
         anchors,
         record,
@@ -251,18 +288,15 @@ def main():
         profile,
         conf
     )
-    updater = get_plot_updater(
-        tag_plots,
-        record,
-        time_plot,
-        trace_plot
-    )
+    updater = get_plot_updater(record, tag_plots, time_plot, trace_plot)
+    # ani = None
     ani = ma.FuncAnimation(
         fig,
         updater,
         frames=frames,
         interval=1000//conf['fps']  # interval is in ms
     )
+    # _ = create_controls(fig, anchors, updater)
     if conf['video'] is None:
         plt.show()
     else:
