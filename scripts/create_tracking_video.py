@@ -80,56 +80,49 @@ def get_config():
     return conf
 
 
-def get_recording_row_colors(recording, tags, colors):
-    cmap = dict(zip(tags, colors))
-    return recording.index.get_level_values('i').map(cmap)
-
-
-def prepare_recording(
-    record_path,
-    profile,
-    anchors,
-    target_period,
-    tag_colors
-):
-    record = postprocess.get_recording(
-        record_path,
+def load_and_format_recording(profile, anchors):
+    recording = postprocess.get_recording(
+        profile['recording_path'],
         profile,
         anchors,
-        interp_period=target_period
+        interp_period=profile['interval']
     )
-    record['c'] = get_recording_row_colors(
-        record,
-        profile['tags'],
-        colors=tag_colors
+    recording['c'] = recording.index.get_level_values('i').map(
+        profile['tag_colors']
     )
-    return record
+    return recording
 
 
-def init_figure_and_plots(
-    floorplan_img,
-    anchors,
-    recording,
-    target_period,
-    profile,
-    conf
-):
+def get_animation_frame_indices(recording, profile):
+    frame_indices = pd.date_range(
+        recording.index[0][0],
+        recording.index[-1][0],
+        freq=f"{profile['interval']}s"
+    )
+    frame_indices = frame_indices[
+        frame_indices.indexer_between_time(*profile['time_range'])
+    ].copy()
+    if profile['num_frames'] is not None:
+        frame_indices = frame_indices[:profile['num_frames']]
+    return frame_indices
+
+
+def init_figure_and_plots(floorplan_img, anchors, profile):
     plt.rcParams['figure.facecolor'] = 'black'
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
     plots = {}
     plots['anchors'] = plot_background(ax, floorplan_img, anchors)
-    frames = create_frames(recording, profile, conf, target_period)
-    plots['tags'] = create_tag_plots(ax, recording, profile)
+    plots['tags'] = create_tag_plots(ax, profile)
     plots['clock'] = ax.annotate(
-        frames[0].strftime("%a %H:%M"),
+        "",
         (.03, .06),
         xycoords='figure fraction',
         fontsize=24
     )
-    if conf['show_trace']:
-        plots['tags_trace'] = create_trace_plot(ax, recording)
+    if profile['show_trace']:
+        plots['tags_trace'] = create_trace_plot(ax)
     fig.tight_layout()
-    return fig, frames, plots
+    return fig, plots
 
 
 def plot_background(ax, floorplan_img, anchors):
@@ -154,28 +147,13 @@ def plot_background(ax, floorplan_img, anchors):
     return anchor_plot
 
 
-def create_frames(recording, profile, conf, target_period):
-    frames = pd.date_range(
-        recording.index[0][0],
-        recording.index[-1][0],
-        freq=f'{target_period}s'
-    )
-    frames = frames[
-        frames.indexer_between_time(*profile['time_range'])
-    ].copy()
-    if conf['frames'] is not None:
-        frames = frames[:conf['frames']]
-    return frames
-
-
-def create_tag_plots(ax, recording, profile):
+def create_tag_plots(ax, profile):
     tag_plots = {}
     for tag in profile['tags']:
-        tag_first_record = recording.xs(tag, level='i').iloc[0]
         tag_plots[tag] = ax.scatter(
-            tag_first_record['x'],
-            tag_first_record['y'],
-            c=tag_first_record['c'],
+            0,
+            0,
+            c=profile['tag_colors'][tag],
             alpha=.8,
             edgecolor='k',
             lw=.5,
@@ -185,11 +163,11 @@ def create_tag_plots(ax, recording, profile):
     return tag_plots
 
 
-def create_trace_plot(ax, recording):
+def create_trace_plot(ax):
     trace_plot = ax.scatter(
-        recording.iloc[0]['x'],
-        recording.iloc[0]['y'],
-        c=recording.iloc[0]['c'],
+        0,
+        0,
+        c='none',
         alpha=.1,
         edgecolor='none',
         s=20,
@@ -263,36 +241,29 @@ def main():
     profile_path = data_dir / conf['profile']
     with open(profile_path, 'r') as handle:
         profile = json.load(handle)
-    floorplan_path = data_dir / profile['files']['floorplan']
-    record_path = data_dir / profile['files']['recording']
+    profile['floorplan_path'] = data_dir / profile['files']['floorplan']
+    # Create the animation settings.
+    profile['recording_path'] = data_dir / profile['files']['recording']
+    profile['num_frames'] = conf['frames']
+    profile['show_trace'] = conf['show_trace']
+    profile['interval'] = conf['speed'] // conf['fps']
+    assert profile['interval'] >= 1, "Speed must be higher than the FPS"
+    base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
+    profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
     # Load the data (floorplan, anchors, recording).
-    floorplan_img = Image.open(floorplan_path)
+    floorplan_img = Image.open(profile['floorplan_path'])
     anchors = postprocess.get_anchors(profile)
-    target_period = conf['speed'] // conf['fps']
-    assert target_period >= 1, "Speed must be higher than the FPS"
-    colors = ['tab:pink', 'tab:olive', 'tab:cyan']
-    record = prepare_recording(
-        record_path,
-        profile,
-        anchors,
-        target_period,
-        colors
-    )
+    record = load_and_format_recording(profile, anchors)
+    frame_indices = get_animation_frame_indices(record, profile)
     # Render.
-    fig, frames, plots = init_figure_and_plots(
-        floorplan_img,
-        anchors,
-        record,
-        target_period,
-        profile,
-        conf
-    )
+    fig, plots = init_figure_and_plots(floorplan_img, anchors, profile)
     updater = get_plot_updater(record, plots)
+    updater(frame_indices[0])
     # ani = None
     ani = ma.FuncAnimation(
         fig,
         updater,
-        frames=frames,
+        frames=frame_indices,
         interval=1000//conf['fps']  # interval is in ms
     )
     # _ = create_controls(fig, anchors, updater)
