@@ -116,21 +116,20 @@ def init_figure_and_plots(
 ):
     plt.rcParams['figure.facecolor'] = 'black'
     fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
-    anchor_plot = plot_background(ax, floorplan_img, anchors)
+    plots = {}
+    plots['anchors'] = plot_background(ax, floorplan_img, anchors)
     frames = create_frames(recording, profile, conf, target_period)
-    tag_plots = create_tag_plots(ax, recording, profile)
-    time_plot = ax.annotate(
+    plots['tags'] = create_tag_plots(ax, recording, profile)
+    plots['clock'] = ax.annotate(
         frames[0].strftime("%a %H:%M"),
         (.03, .06),
         xycoords='figure fraction',
         fontsize=24
     )
     if conf['show_trace']:
-        trace_plot = create_trace_plot(ax, recording)
-    else:
-        trace_plot = None
+        plots['tags_trace'] = create_trace_plot(ax, recording)
     fig.tight_layout()
-    return fig, frames, anchor_plot, tag_plots, time_plot, trace_plot
+    return fig, frames, plots
 
 
 def plot_background(ax, floorplan_img, anchors):
@@ -199,9 +198,9 @@ def create_trace_plot(ax, recording):
     return trace_plot
 
 
-def get_plot_updater(recording, tag_plots, time_plot, trace_plot):
+def get_plot_updater(recording, plots):
     def update(frame):
-        for tag, tag_plot in tag_plots.items():
+        for tag, tag_plot in plots['tags'].items():
             try:
                 row = recording.loc[(frame, tag)]
             except KeyError:
@@ -209,11 +208,11 @@ def get_plot_updater(recording, tag_plots, time_plot, trace_plot):
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
             tag_plot.set_alpha(.8)
-        time_plot.set_text(frame.strftime("%a %H:%M"))
-        if trace_plot is not None:
+        plots['clock'].set_text(frame.strftime("%a %H:%M"))
+        if 'tags_trace' in plots:
             trace = recording.loc[:frame]
-            trace_plot.set_offsets(trace[['x', 'y']])
-            trace_plot.set_facecolor(trace['c'])
+            plots['tags_trace'].set_offsets(trace[['x', 'y']])
+            plots['tags_trace'].set_facecolor(trace['c'])
     return update
 
 
@@ -280,7 +279,7 @@ def main():
         colors
     )
     # Render.
-    fig, frames, anchor_plot, tag_plots, time_plot, trace_plot = init_figure_and_plots(
+    fig, frames, plots = init_figure_and_plots(
         floorplan_img,
         anchors,
         record,
@@ -288,7 +287,7 @@ def main():
         profile,
         conf
     )
-    updater = get_plot_updater(record, tag_plots, time_plot, trace_plot)
+    updater = get_plot_updater(record, plots)
     # ani = None
     ani = ma.FuncAnimation(
         fig,
