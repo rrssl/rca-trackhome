@@ -3,7 +3,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import matplotlib.animation as ma
-import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -140,15 +139,6 @@ def plot_background(ax, floorplan_img, anchors):
         s=10,
         zorder=3
     )
-    # for name, anchor in anchors.iterrows():
-    #     ax.annotate(
-    #         name,
-    #         (anchor['xi'], anchor['yi']),
-    #         xytext=(5, 5),
-    #         textcoords='offset pixels',
-    #         path_effects=[pe.withStroke(linewidth=2, foreground='w')],
-    #         fontsize=4
-    #     )
     return anchor_plot
 
 
@@ -199,33 +189,47 @@ def get_plot_updater(recording, plots):
     return update
 
 
-def create_controls(fig, parameters, anchor_plot):
-    ax = fig.add_subplot(5, 1, 5)
+def get_control_blueprints(profile):
+    blueprints = {}
+    param_defaults = {
+        'x': {'valmin': 0, 'valmax': 200, 'valstep': 1},
+        'y': {'valmin': 0, 'valmax': 600, 'valstep': 1},
+        's': {'valmin': 0.1, 'valmax': 0.5, 'valstep': 0.001},
+    }
+    for floor_name, floor_xform in profile['transforms'].items():
+        for value, (param, kwargs) in zip(floor_xform, param_defaults.items()):
+            label = "/".join((floor_name, param))
+            blueprints[label] = kwargs | {'valinit': value}
+    return blueprints
+
+
+def create_controls(profile, anchors_plot):
+    blueprints = get_control_blueprints(profile)
+    fig = anchors_plot.figure
+    fig_width = 16
+    fig_height = 18
     controls = {}
-    i = 0
-    controls['x'] = Slider(
-        ax=ax,
-        label='x',
-        valmin=parameters[i]-100,
-        valmax=parameters[i]+100,
-        valinit=parameters[i],
-    )
-    controls['x'].on_changed(
-        get_anchor_updater(fig, parameters, i, anchor_plot)
-    )
+    for i, (label, kwargs) in enumerate(blueprints.items()):
+        ax = fig.add_subplot(
+            fig_height,
+            fig_width,
+            ((i+1)*fig_width-4, (i+1)*fig_width-1)
+        )
+        controls[label] = Slider(ax=ax, label=label, **kwargs)
+        controls[label].on_changed(
+            get_anchor_updater(profile, label, anchors_plot)
+        )
     return controls
 
 
-def get_anchor_updater(fig, profile, transform_param, anchor_plot):
+def get_anchor_updater(profile, label, anchors_plot):
     def update_anchors(value):
-        profile['transforms']['main'][transform_param] = value
+        floor_name, parameter = label.split("/")
+        param_index = ('x', 'y', 's').index(parameter)
+        profile['transforms'][floor_name][param_index] = value
         anchors = postprocess.get_anchors(profile)
-        update_anchor_plot(anchors, anchor_plot)
-        fig.canvas.draw_idle()
-
-
-def update_anchor_plot(anchors, anchor_plot):
-    anchor_plot.set_offsets(anchors[['xi', 'yi']])
+        anchors_plot.set_offsets(anchors[['xi', 'yi']])
+    return update_anchors
 
 
 def render_anim_to_file(ani, conf):
@@ -266,7 +270,7 @@ def main():
     updater(frame_indices[0])
     # Show the transform controls or animation depending on the options.
     if conf['set_transform']:
-        _ = create_controls(fig, anchors, updater)
+        _ = create_controls(profile, plots['anchors'])
         plt.show()
     else:
         ani = ma.FuncAnimation(
