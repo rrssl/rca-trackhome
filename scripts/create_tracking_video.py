@@ -55,6 +55,11 @@ def get_arg_parser():
         action='store_true',
         help="Show the trace of tracking points"
     )
+    parser.add_argument(
+        '--set_transform',
+        action='store_true',
+        help="Show the controls to configure the anchor/recording tranform"
+    )
     return parser
 
 
@@ -259,18 +264,21 @@ def main():
     fig, plots = init_figure_and_plots(floorplan_img, anchors, profile)
     updater = get_plot_updater(record, plots)
     updater(frame_indices[0])
-    # ani = None
-    ani = ma.FuncAnimation(
-        fig,
-        updater,
-        frames=frame_indices,
-        interval=1000//conf['fps']  # interval is in ms
-    )
-    # _ = create_controls(fig, anchors, updater)
-    if conf['video'] is None:
+    # Show the transform controls or animation depending on the options.
+    if conf['set_transform']:
+        _ = create_controls(fig, anchors, updater)
         plt.show()
     else:
-        render_anim_to_file(ani, conf)
+        ani = ma.FuncAnimation(
+            fig,
+            updater,
+            frames=frame_indices,
+            interval=1000//conf['fps']  # interval is in ms
+        )
+        if conf['video'] is None:
+            plt.show()
+        else:
+            render_anim_to_file(ani, conf)
 
 
 if __name__ == "__main__":
