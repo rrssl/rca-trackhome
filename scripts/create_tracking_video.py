@@ -30,15 +30,15 @@ def get_arg_parser():
     )
     parser.add_argument(
         '--speed',
-        required=True,
+        default=300,
         type=int,
-        help="Seconds of recording per second of video"
+        help="Seconds of recording per second of video (default: 300)"
     )
     parser.add_argument(
         '--fps',
         required=True,
         type=int,
-        help="Frames per second of the video (independent of the replay speed)"
+        help="Video frames per second (default: 15)"
     )
     parser.add_argument(
         '--video',
