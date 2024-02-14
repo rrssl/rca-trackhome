@@ -6,7 +6,6 @@ import matplotlib.animation as ma
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-# import pandasgui
 import yaml
 from matplotlib.widgets import Slider
 from PIL import Image
@@ -95,9 +94,34 @@ def load_and_format_recording(profile, anchors):
         anchors,
         interp_period=profile['interval']
     )
+    if 'filter_path' in profile:
+        filter_table = load_and_format_filter_table(profile)
+        recording = apply_filter_table(filter_table, recording)
     recording['c'] = recording.index.get_level_values('i').map(
         profile['tag_colors']
     )
+    return recording
+
+
+def load_and_format_filter_table(profile):
+    filter_table = pd.read_csv(profile['filter_path'])
+    for col in ('start', 'end'):
+        filter_table[col] = pd.to_datetime(
+            filter_table['day'] + " " + filter_table[col],
+            format="%d/%m/%y %H:%M"  # e.g. "31/12/23 14:59"
+        ).dt.tz_localize(profile['timezone'])
+    filter_table.drop(columns='day', inplace=True)
+    filter_table['tag'] = filter_table['tag'].str.lower()
+    return filter_table
+
+
+def apply_filter_table(filter_table, recording):
+    for _, filter_row in filter_table.iterrows():
+        recording = recording.loc[~(
+            (recording.index.get_level_values('i') == filter_row['tag'])
+            & (recording.index.get_level_values('t') > filter_row['start'])
+            & (recording.index.get_level_values('t') < filter_row['end'])
+        )]
     return recording
 
 
