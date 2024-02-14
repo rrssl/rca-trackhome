@@ -29,6 +29,10 @@ def get_arg_parser():
         help="Path of the profile in the data dir"
     )
     parser.add_argument(
+        '--filter',
+        help="Optional path to a CSV file used to filter the data"
+    )
+    parser.add_argument(
         '--speed',
         default=300,
         type=int,
@@ -250,9 +254,11 @@ def main():
     profile_path = data_dir / conf['profile']
     with open(profile_path, 'r') as handle:
         profile = json.load(handle)
-    profile['floorplan_path'] = data_dir / profile['files']['floorplan']
     # Create the animation settings.
+    profile['floorplan_path'] = data_dir / profile['files']['floorplan']
     profile['recording_path'] = data_dir / profile['files']['recording']
+    if conf['filter'] is not None:
+        profile['filter_path'] = data_dir / conf['filter']
     profile['num_frames'] = conf['frames']
     profile['show_trace'] = conf['show_trace']
     profile['interval'] = conf['speed'] // conf['fps']
