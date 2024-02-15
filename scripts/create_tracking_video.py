@@ -1,5 +1,5 @@
 import json
-from argparse import ArgumentParser
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from pathlib import Path
 
 import matplotlib.animation as ma
@@ -15,7 +15,10 @@ from trkpy import postprocess
 
 
 def get_arg_parser():
-    parser = ArgumentParser(description=__doc__)
+    parser = ArgumentParser(
+        description=__doc__,
+        formatter_class=ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument(
         '--config',
         metavar='FILE',
