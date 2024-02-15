@@ -217,7 +217,7 @@ def create_trace_plot(ax):
         0,
         0,
         c='none',
-        alpha=.1,
+        alpha=.2,
         edgecolor='none',
         s=20,
         zorder=4
@@ -311,7 +311,6 @@ def main():
     with open(profile_path, 'r') as handle:
         profile = json.load(handle)
     # Create the animation settings.
-    profile['floorplan_path'] = data_dir / profile['files']['floorplan']
     profile['recording_path'] = data_dir / profile['files']['recording']
     if conf['mask'] is not None:
         profile['mask_path'] = data_dir / conf['mask']
@@ -319,7 +318,8 @@ def main():
     base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
     profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
     # Load the data (floorplan, anchors, recording).
-    floorplan_img = Image.open(profile['floorplan_path'])
+    floorplan_path = data_dir / profile['files']['floorplan']
+    floorplan_img = Image.open(floorplan_path)
     anchors = postprocess.get_anchors(profile)
     record = load_and_format_recording(profile, anchors)
     # Define the animation frame timestamps.
