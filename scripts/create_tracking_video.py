@@ -137,17 +137,29 @@ def apply_filter_table(filter_table, recording):
     return recording
 
 
-def get_animation_frame_indices(recording, profile):
-    frame_indices = pd.date_range(
-        recording.index[0][0],
-        recording.index[-1][0],
-        freq=f"{profile['interval']}s"
-    )
+def sum_seconds_in_range_between_datetimes(start, end, time_range):
+    span = (end - start).total_seconds()
+    num_block_removed = (end.date()-start.date()).days
+    time_range = pd.to_datetime(time_range, format="%H:%M")
+    time_range_duration = time_range.diff()[-1].seconds
+    block_removed_duration = 24*3600 - time_range_duration
+    net_duration = span - num_block_removed*block_removed_duration
+    return net_duration
+
+
+def get_animation_frame_indices(
+    start,
+    end,
+    interval_in_sec,
+    time_range,
+    num_frames=None
+):
+    frame_indices = pd.date_range(start, end, freq=f"{interval_in_sec}s")
     frame_indices = frame_indices[
-        frame_indices.indexer_between_time(*profile['time_range'])
+        frame_indices.indexer_between_time(*time_range)
     ].copy()
-    if profile['num_frames'] is not None:
-        frame_indices = frame_indices[:profile['num_frames']]
+    if num_frames is not None:
+        frame_indices = frame_indices[:num_frames]
     return frame_indices
 
 
@@ -301,19 +313,36 @@ def main():
     profile['recording_path'] = data_dir / profile['files']['recording']
     if conf['filter'] is not None:
         profile['filter_path'] = data_dir / conf['filter']
-    profile['num_frames'] = conf['frames']
     profile['show_trace'] = conf['show_trace']
-    profile['interval'] = conf['speed'] // conf['fps']
     base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
     profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
     # Load the data (floorplan, anchors, recording).
     floorplan_img = Image.open(profile['floorplan_path'])
     anchors = postprocess.get_anchors(profile)
     record = load_and_format_recording(profile, anchors)
-    frame_indices = get_animation_frame_indices(record, profile)
+    # Define the animation frame timestamps.
+    start = record.index[0][0]
+    end = record.index[-1][0]
+    if conf['speed'] is not None:
+        replay_speed = conf['speed']
+    else:
+        recording_duration = sum_seconds_in_range_between_datetimes(
+            start,
+            end,
+            profile['time_range']
+        )
+        replay_speed = recording_duration / conf['duration']
+    interval_in_sec = replay_speed // conf['fps']
+    frame_indices = get_animation_frame_indices(
+        start,
+        end,
+        interval_in_sec=interval_in_sec,
+        time_range=profile['time_range'],
+        num_frames=conf['frames']
+    )
     # Render.
     fig, plots = init_figure_and_plots(floorplan_img, anchors, profile)
-    updater = get_plot_updater(record, plots, profile['interval'])
+    updater = get_plot_updater(record, plots, interval_in_sec)
     updater(frame_indices[0])
     # Show the transform controls or animation depending on the options.
     if conf['set_transform']:
