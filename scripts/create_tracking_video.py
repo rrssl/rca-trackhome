@@ -31,8 +31,8 @@ def get_arg_parser():
         help="Path of the profile in the data dir"
     )
     parser.add_argument(
-        '--filter',
-        help="Optional path to a CSV file used to filter the data"
+        '--mask',
+        help="Optional path to a CSV file used to mask the data"
     )
     parser.add_argument(
         '--speed',
@@ -106,33 +106,33 @@ def load_and_format_recording(profile, anchors):
         profile,
         anchors
     )
-    if 'filter_path' in profile:
-        filter_table = load_and_format_filter_table(profile)
-        recording = apply_filter_table(filter_table, recording)
+    if 'mask_path' in profile:
+        mask_table = load_and_format_mask_table(profile)
+        recording = apply_mask_table(mask_table, recording)
     recording['c'] = recording.index.get_level_values('i').map(
         profile['tag_colors']
     )
     return recording
 
 
-def load_and_format_filter_table(profile):
-    filter_table = pd.read_csv(profile['filter_path'])
+def load_and_format_mask_table(profile):
+    mask_table = pd.read_csv(profile['mask_path'])
     for col in ('start', 'end'):
-        filter_table[col] = pd.to_datetime(
-            filter_table['day'] + " " + filter_table[col],
+        mask_table[col] = pd.to_datetime(
+            mask_table['day'] + " " + mask_table[col],
             format="%d/%m/%y %H:%M"  # e.g. "31/12/23 14:59"
         ).dt.tz_localize(profile['timezone'])
-    filter_table.drop(columns='day', inplace=True)
-    filter_table['tag'] = filter_table['tag'].str.lower()
-    return filter_table
+    mask_table.drop(columns='day', inplace=True)
+    mask_table['tag'] = mask_table['tag'].str.lower()
+    return mask_table
 
 
-def apply_filter_table(filter_table, recording):
-    for _, filter_row in filter_table.iterrows():
+def apply_mask_table(mask_table, recording):
+    for _, mask_row in mask_table.iterrows():
         recording = recording.loc[~(
-            (recording.index.get_level_values('i') == filter_row['tag'])
-            & (recording.index.get_level_values('t') > filter_row['start'])
-            & (recording.index.get_level_values('t') < filter_row['end'])
+            (recording.index.get_level_values('i') == mask_row['tag'])
+            & (recording.index.get_level_values('t') > mask_row['start'])
+            & (recording.index.get_level_values('t') < mask_row['end'])
         )]
     return recording
 
@@ -313,8 +313,8 @@ def main():
     # Create the animation settings.
     profile['floorplan_path'] = data_dir / profile['files']['floorplan']
     profile['recording_path'] = data_dir / profile['files']['recording']
-    if conf['filter'] is not None:
-        profile['filter_path'] = data_dir / conf['filter']
+    if conf['mask'] is not None:
+        profile['mask_path'] = data_dir / conf['mask']
     profile['show_trace'] = conf['show_trace']
     base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
     profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
