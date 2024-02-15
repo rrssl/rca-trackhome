@@ -181,9 +181,11 @@ def init_figure_and_plots(floorplan_img, anchors, profile):
     return fig, plots
 
 
-def plot_background(ax, floorplan_img, anchors):
+def plot_background(ax, floorplan_img, anchors=None):
     ax.set_axis_off()
     ax.imshow(np.asarray(floorplan_img), zorder=2)
+    if anchors is None:
+        return None
     anchor_plot = ax.scatter(
         anchors['xi'],
         anchors['yi'],
@@ -341,6 +343,8 @@ def main():
         num_frames=conf['frames']
     )
     # Render.
+    if not conf['set_transform']:
+        anchors = None
     fig, plots = init_figure_and_plots(floorplan_img, anchors, profile)
     updater = get_plot_updater(record, plots, interval_in_sec)
     updater(frame_indices[0])
