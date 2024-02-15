@@ -36,15 +36,19 @@ def get_arg_parser():
     )
     parser.add_argument(
         '--speed',
-        default=300,
         type=int,
-        help="Seconds of recording per second of video (default: 300)"
+        help="Replay speed multiplier (set either this or --duration)"
+    )
+    parser.add_argument(
+        '--duration',
+        type=int,
+        help="Duration of the video in seconds (set either this or --speed)"
     )
     parser.add_argument(
         '--fps',
-        required=True,
+        default=30,
         type=int,
-        help="Video frames per second (default: 15)"
+        help="Video frames per second"
     )
     parser.add_argument(
         '--video',
@@ -53,7 +57,7 @@ def get_arg_parser():
     parser.add_argument(
         '--frames',
         type=int,
-        help="Optional number of frames to output"
+        help="Optional max number of frames to output; overrides --duration"
     )
     parser.add_argument(
         '--show_trace',
@@ -69,8 +73,12 @@ def get_arg_parser():
 
 
 def get_config():
+    parser = get_arg_parser()
+    aconf, fconf_override = parser.parse_known_args()
+    # Validate the arguments.
+    if not (bool(aconf.speed) ^ bool(aconf.duration)):
+        parser.error("Either --speed or --duration must be selected")
     # Load the configuration.
-    aconf, fconf_override = get_arg_parser().parse_known_args()
     with open(aconf.config, 'r') as handle:
         fconf = yaml.safe_load(handle)
     # Override file config with "--section.option val" command line arguments.
