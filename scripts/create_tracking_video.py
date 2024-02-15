@@ -91,8 +91,7 @@ def load_and_format_recording(profile, anchors):
     recording = postprocess.get_recording(
         profile['recording_path'],
         profile,
-        anchors,
-        interp_period=profile['interval']
+        anchors
     )
     if 'filter_path' in profile:
         filter_table = load_and_format_filter_table(profile)
@@ -199,12 +198,18 @@ def create_trace_plot(ax):
     return trace_plot
 
 
-def get_plot_updater(recording, plots):
+def get_plot_updater(recording, plots, update_limit_in_sec=None):
+    update_limit = pd.Timedelta(seconds=update_limit_in_sec)
+
     def update(frame):
+        recording_until_now = recording.loc[:frame]
         for tag, tag_plot in plots['tags'].items():
             try:
-                row = recording.loc[(frame, tag)]
-            except KeyError:
+                row = recording_until_now.xs(tag, level='i').iloc[-1]
+            except KeyError:  # means this tag hasn't appeared yet
+                continue
+            time_diff = frame - row.name  # always positive
+            if time_diff > update_limit:
                 tag_plot.set_alpha(.2)
                 continue
             tag_plot.set_offsets(row[['x', 'y']])
@@ -296,7 +301,7 @@ def main():
     frame_indices = get_animation_frame_indices(record, profile)
     # Render.
     fig, plots = init_figure_and_plots(floorplan_img, anchors, profile)
-    updater = get_plot_updater(record, plots)
+    updater = get_plot_updater(record, plots, profile['interval'])
     updater(frame_indices[0])
     # Show the transform controls or animation depending on the options.
     if conf['set_transform']:
