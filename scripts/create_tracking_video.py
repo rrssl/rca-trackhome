@@ -78,6 +78,8 @@ def get_config():
     # Validate the arguments.
     if not (bool(aconf.speed) ^ bool(aconf.duration)):
         parser.error("Either --speed or --duration must be selected")
+    if aconf.speed is not None and aconf.speed < aconf.fps:
+        parser.error("Replay speed must be higher than the FPS")
     # Load the configuration.
     with open(aconf.config, 'r') as handle:
         fconf = yaml.safe_load(handle)
@@ -302,7 +304,6 @@ def main():
     profile['num_frames'] = conf['frames']
     profile['show_trace'] = conf['show_trace']
     profile['interval'] = conf['speed'] // conf['fps']
-    assert profile['interval'] >= 1, "Speed must be higher than the FPS"
     base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
     profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
     # Load the data (floorplan, anchors, recording).
