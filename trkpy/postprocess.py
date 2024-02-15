@@ -29,7 +29,7 @@ def get_recording(
     record_path: str,
     profile: dict,
     anchors: pd.DataFrame,
-    denoise_period: int = 60,
+    denoise_period: int = None,
     interp_period: int = None
 ) -> pd.DataFrame:
     """Load, clean and transform the recording to overlay on the floorplan."""
@@ -53,9 +53,10 @@ def get_recording(
             & (tag_record['y'].shift(1) == tag_record['y'])
         ].index)
         # First denoise by averaging over time windows.
-        tag_record = tag_record[['x', 'y', 'z']].resample(
-            f'{denoise_period}s'
-        ).mean().dropna()
+        if denoise_period is not None:
+            tag_record = tag_record[['x', 'y', 'z']].resample(
+                f'{denoise_period}s'
+            ).mean().dropna()
         # Then interpolate to match the target period.
         if interp_period is not None:
             tag_record = tag_record[['x', 'y', 'z']].resample(
