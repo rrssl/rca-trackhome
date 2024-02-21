@@ -45,12 +45,6 @@ def get_arg_parser():
         help="Duration of the video in seconds (set either this or --speed)"
     )
     parser.add_argument(
-        '--fps',
-        default=30,
-        type=int,
-        help="Video frames per second"
-    )
-    parser.add_argument(
         '--video',
         help="Path of the video in the output dir; if omitted, just play"
     )
@@ -165,7 +159,11 @@ def get_animation_frame_indices(
 
 def init_figure_and_plots(floorplan_img, anchors, profile):
     plt.rcParams['figure.facecolor'] = 'black'
-    fig, ax = plt.subplots(figsize=(16, 9), dpi=120, frameon=False)
+    px = 1 / plt.rcParams['figure.dpi']
+    fig, ax = plt.subplots(
+        figsize=(profile['width']*px, profile['height']*px),
+        frameon=False
+    )
     plots = {}
     plots['anchors'] = plot_background(ax, floorplan_img, anchors)
     plots['tags'] = create_tag_plots(ax, profile)
@@ -315,8 +313,12 @@ def main():
     if conf['mask'] is not None:
         profile['mask_path'] = data_dir / conf['mask']
     profile['show_trace'] = conf['show_trace']
-    base_tag_colors = ['tab:pink', 'tab:olive', 'tab:cyan']
-    profile['tag_colors'] = dict(zip(profile['tags'], base_tag_colors))
+    profile['tag_colors'] = dict(zip(
+        profile['tags'],
+        conf['render']['color_palette']
+    ))
+    profile['width'] = conf['render']['width_px']
+    profile['height'] = conf['render']['height_px']
     # Load the data (floorplan, anchors, recording).
     floorplan_path = data_dir / profile['files']['floorplan']
     floorplan_img = Image.open(floorplan_path)
@@ -334,7 +336,7 @@ def main():
             profile['time_range']
         )
         replay_speed = recording_duration / conf['duration']
-    interval_in_sec = replay_speed // conf['fps']
+    interval_in_sec = replay_speed // conf['render']['fps']
     frame_indices = get_animation_frame_indices(
         start,
         end,
@@ -357,7 +359,7 @@ def main():
             fig,
             updater,
             frames=frame_indices,
-            interval=1000//conf['fps']  # interval is in ms
+            interval=1000//conf['render']['fps']  # interval is in ms
         )
         if conf['video'] is None:
             plt.show()
