@@ -253,6 +253,7 @@ def get_control_blueprints(profile):
         'x': {'valmin': 0, 'valmax': 200, 'valstep': 1},
         'y': {'valmin': 0, 'valmax': 600, 'valstep': 1},
         's': {'valmin': 0.1, 'valmax': 0.5, 'valstep': 0.001},
+        'r': {'valmin': 0, 'valmax': 270, 'valstep': 90}
     }
     for floor_name, floor_xform in profile['transforms'].items():
         for value, (param, kwargs) in zip(floor_xform, param_defaults.items()):
@@ -283,7 +284,7 @@ def create_controls(profile, anchors_plot):
 def get_anchor_updater(profile, label, anchors_plot):
     def update_anchors(value):
         floor_name, parameter = label.split("/")
-        param_index = ('x', 'y', 's').index(parameter)
+        param_index = ('x', 'y', 's', 'r').index(parameter)
         profile['transforms'][floor_name][param_index] = value
         anchors = postprocess.get_anchors(profile)
         anchors_plot.set_offsets(anchors[['xi', 'yi']])

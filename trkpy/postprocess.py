@@ -2,6 +2,27 @@ import numpy as np
 import pandas as pd
 
 
+def transform_xy(points, transforms, center):
+    # Rotate xy
+    angle = np.radians(transforms['r'])
+    cos_angle = np.cos(angle)
+    sin_angle = np.sin(angle)
+    points_x_rot = (
+        (points['x'] - center['x'])*cos_angle
+        - (points['y'] - center['y'])*sin_angle
+        + center['x']
+    )
+    points_y_rot = (
+        (points['x'] - center['x'])*sin_angle
+        + (points['y'] - center['y'])*cos_angle
+        + center['y']
+    )
+    # Scale and translate xy
+    points_x_final = points_x_rot*transforms['s'] + transforms['tx']
+    points_y_final = points_y_rot*transforms['s'] + transforms['ty']
+    return points_x_final, points_y_final
+
+
 def get_anchors(profile: dict) -> pd.DataFrame:
     """Build a dataframe of anchors with original and floorplan coordinates."""
     anchors = pd.DataFrame.from_dict(
@@ -14,14 +35,20 @@ def get_anchors(profile: dict) -> pd.DataFrame:
     for floor, floor_anchors in profile['floors'].items():
         for fa in floor_anchors:
             anchors.loc[fa, 'floor'] = floor
-    anchors[['tx', 'ty', 's']] = anchors.apply(
+    anchors[['tx', 'ty', 's', 'r']] = anchors.apply(
         lambda row: profile['transforms'][row['floor']],
         axis=1,
         result_type='expand'
     )
-    anchors['yi'] = anchors['y'].max() - anchors['y']  # swap y axis
-    anchors['yi'] = anchors['yi']*anchors['s'] + anchors['ty']
-    anchors['xi'] = anchors['x']*anchors['s'] + anchors['tx']
+    # Mirror y
+    anchors_xy = anchors[['x', 'y']].copy()
+    anchors_xy['y'] = anchors_xy['y'].max() - anchors_xy['y']  # swap y axis
+    center = {'x': anchors['x'].mean(), 'y': anchors['y'].mean()}
+    anchors['xi'], anchors['yi'] = transform_xy(
+        anchors_xy,
+        anchors[['tx', 'ty', 's', 'r']],
+        center
+    )
     return anchors
 
 
@@ -80,9 +107,19 @@ def get_recording(
         record.loc[record['z'] < floor_max+1000, 'floor'] = floor
     record = record.drop(record[record['floor'] == ""].index)
     # Change coordinates depending on the floor.
-    data_xforms = np.vstack(record['floor'].map(profile['transforms']))
     record['y'] = anchors['y'].max() - record['y']  # swap y axis
-    record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
-    record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
+    record[['tx', 'ty', 's', 'r']] = pd.DataFrame(
+        record['floor'].map(profile['transforms']).to_list(),
+        index=record.index,
+    )
+    # Rotate using the center of the anchors.
+    center = {'x': anchors['x'].mean(), 'y': anchors['y'].mean()}
+    record['x'], record['y'] = transform_xy(
+        record[['x', 'y']],
+        record[['tx', 'ty', 's', 'r']],
+        center
+    )
+    # record[['x', 'y']] = record[['x', 'y']].multiply(data_xforms[:, 2:])
+    # record[['x', 'y']] = record[['x', 'y']].add(data_xforms[:, :2])
 
     return record
