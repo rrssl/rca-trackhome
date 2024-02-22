@@ -9,7 +9,9 @@ dependencies:
   - jsonschema
   - jupyterlab
   - jupytext
+  - matplotlib
   - numpy
+  - pandas
   - pip
   - pyjwt
   - python-lsp-server
