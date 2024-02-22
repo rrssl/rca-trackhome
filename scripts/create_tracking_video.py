@@ -366,6 +366,10 @@ def main():
         time_range=profile['time_range'],
         num_frames=conf['frames']
     )
+    video_duration = pd.Timedelta(
+        seconds=len(frame_indices) // conf['render']['fps']
+    )
+    print(f"Estimated video duration: {video_duration}")
     # Render.
     if not conf['set_transform']:
         anchors = None
