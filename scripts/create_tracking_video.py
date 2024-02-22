@@ -188,7 +188,7 @@ def init_figure_and_plots(floorplan_img, anchors, profile):
     )
     ax.annotate(
         f"(×{profile['speed']})",
-        (.12, .06),
+        (.15, .06),
         xycoords='figure fraction',
         fontsize=24
     )
