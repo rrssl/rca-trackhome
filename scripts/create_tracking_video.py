@@ -207,6 +207,7 @@ def plot_background(ax, floorplan_img, anchors=None):
         anchors['xi'],
         anchors['yi'],
         marker='s',
+        alpha=0.8,
         s=10,
         zorder=3
     )
@@ -269,10 +270,10 @@ def get_plot_updater(recording, plots, update_limit_in_sec=None):
 def get_control_blueprints(profile):
     blueprints = {}
     param_defaults = {
-        'x': {'valmin': 0, 'valmax': 200, 'valstep': 1},
-        'y': {'valmin': 0, 'valmax': 600, 'valstep': 1},
-        's': {'valmin': 0.1, 'valmax': 0.5, 'valstep': 0.001},
-        'r': {'valmin': 0, 'valmax': 270, 'valstep': 90}
+        'x': {'valmin': 1000, 'valmax': 1700, 'valstep': 1},
+        'y': {'valmin': 100, 'valmax': 800, 'valstep': 1},
+        's': {'valmin': 0.1, 'valmax': 0.2, 'valstep': 0.001},
+        'r': {'valmin': 0, 'valmax': 359, 'valstep': 1}
     }
     for floor_name, floor_xform in profile['transforms'].items():
         for value, (param, kwargs) in zip(floor_xform, param_defaults.items()):
