@@ -186,6 +186,12 @@ def init_figure_and_plots(floorplan_img, anchors, profile):
         xycoords='figure fraction',
         fontsize=24
     )
+    ax.annotate(
+        f"(×{profile['speed']})",
+        (.12, .06),
+        xycoords='figure fraction',
+        fontsize=24
+    )
     if profile['show_trace']:
         plots['tags_trace'] = create_trace_plot(ax)
     fig.tight_layout()
@@ -214,7 +220,7 @@ def create_tag_plots(ax, profile):
             0,
             0,
             c=profile['tag_colors'][tag],
-            alpha=.8,
+            alpha=1,
             edgecolor='k',
             lw=.5,
             s=50,
@@ -344,6 +350,7 @@ def main():
     end = record.index[-1][0]
     if conf['speed'] is not None:
         replay_speed = conf['speed']
+        profile['speed'] = conf['speed']
     else:
         recording_duration = sum_seconds_in_range_between_datetimes(
             start,
