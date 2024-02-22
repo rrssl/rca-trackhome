@@ -69,14 +69,14 @@ def get_arg_parser():
 def get_config():
     parser = get_arg_parser()
     aconf, fconf_override = parser.parse_known_args()
-    # Validate the arguments.
-    if not (bool(aconf.speed) ^ bool(aconf.duration)):
-        parser.error("Either --speed or --duration must be selected")
-    if aconf.speed is not None and aconf.speed < aconf.fps:
-        parser.error("Replay speed must be higher than the FPS")
     # Load the configuration.
     with open(aconf.config, 'r') as handle:
         fconf = yaml.safe_load(handle)
+    # Validate the arguments.
+    if not (bool(aconf.speed) ^ bool(aconf.duration)):
+        parser.error("Either --speed or --duration must be selected")
+    if aconf.speed is not None and aconf.speed < fconf['render']['fps']:
+        parser.error("Replay speed must be higher than the FPS")
     # Override file config with "--section.option val" command line arguments.
     args = iter(fconf_override)
     for name, val in zip(args, args):
