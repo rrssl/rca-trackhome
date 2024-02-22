@@ -94,6 +94,19 @@ def get_config():
     return conf
 
 
+def get_experiment_name(profile_path):
+    return str(Path(profile_path).parent.parent.name)
+
+
+def get_tag_colors(tags, color_palettes, exp_name=None):
+    if exp_name is None:
+        pal_id = 0
+    else:
+        pal_id = (ord(exp_name[0]) + ord(exp_name[1])) % len(color_palettes)
+    tag_colors = dict(zip(tags, color_palettes[pal_id]))
+    return tag_colors
+
+
 def load_and_format_recording(profile, anchors):
     recording = postprocess.get_recording(
         profile['recording_path'],
@@ -314,10 +327,11 @@ def main():
     if conf['mask'] is not None:
         profile['mask_path'] = data_dir / conf['mask']
     profile['show_trace'] = conf['show_trace']
-    profile['tag_colors'] = dict(zip(
+    profile['tag_colors'] = get_tag_colors(
         profile['tags'],
-        conf['render']['color_palette']
-    ))
+        conf['render']['color_palettes'],
+        get_experiment_name(profile_path)
+    )
     profile['width'] = conf['render']['width_px']
     profile['height'] = conf['render']['height_px']
     # Load the data (floorplan, anchors, recording).

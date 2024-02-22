@@ -44,10 +44,8 @@ tracking:
   wait_time: 0.5
 
 render:
-  color_palette:
-    - 'tab:pink'
-    - 'tab:olive'
-    - 'tab:cyan'
+  color_palettes:
+    - ['tab:pink', 'tab:olive', 'tab:cyan']
   fps: 30
   width_px: 1920
   height_px: 1080
