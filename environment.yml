@@ -13,9 +13,11 @@ dependencies:
   - numpy
   - pandas
   - pip
+  - pyarrow
   - pyjwt
   - python-lsp-server
   - pyyaml
+  - tqdm
   - pip:
     - dbus-next
     - google-cloud-pubsub
