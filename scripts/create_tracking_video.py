@@ -184,13 +184,13 @@ def init_figure_and_plots(floorplan_img, anchors, profile):
         "",
         (.03, .06),
         xycoords='figure fraction',
-        fontsize=24
+        fontsize=profile['height']/36
     )
     ax.annotate(
         f"(×{profile['speed']})",
         (.15, .06),
         xycoords='figure fraction',
-        fontsize=24
+        fontsize=profile['height']/36
     )
     if profile['show_trace']:
         plots['tags_trace'] = create_trace_plot(ax)
