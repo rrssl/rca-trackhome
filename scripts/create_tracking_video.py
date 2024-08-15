@@ -63,6 +63,10 @@ def get_arg_parser():
         action='store_true',
         help="Show the controls to configure the anchor/recording tranform"
     )
+    parser.add_argument(
+        '--palette_name',
+        help="Name of one of the named color palettes in the config file"
+    )
     return parser
 
 
@@ -98,7 +102,7 @@ def get_experiment_name(profile_path):
     return str(Path(profile_path).parent.parent.name)
 
 
-def get_tag_colors(tags, color_palettes, exp_name=None):
+def get_random_tag_colors(tags, color_palettes, exp_name=None):
     if exp_name is None:
         pal_id = 0
     else:
@@ -186,12 +190,12 @@ def init_figure_and_plots(floorplan_img, anchors, profile):
         xycoords='figure fraction',
         fontsize=profile['height']/36
     )
-    ax.annotate(
-        f"(×{profile['speed']})",
-        (.15, .06),
-        xycoords='figure fraction',
-        fontsize=profile['height']/36
-    )
+    # ax.annotate(
+    #     f"(×{profile['speed']})",
+    #     (.15, .06),
+    #     xycoords='figure fraction',
+    #     fontsize=profile['height']/36
+    # )
     if profile['show_trace']:
         plots['tags_trace'] = create_trace_plot(ax)
     fig.tight_layout()
@@ -223,8 +227,8 @@ def create_tag_plots(ax, profile):
             c=profile['tag_colors'][tag],
             alpha=1,
             edgecolor='k',
-            lw=.5,
-            s=50,
+            lw=2,
+            s=100,
             zorder=5
         )
     return tag_plots
@@ -270,8 +274,8 @@ def get_plot_updater(recording, plots, update_limit_in_sec=None):
 def get_control_blueprints(profile):
     blueprints = {}
     param_defaults = {
-        'x': {'valmin': 1000, 'valmax': 1700, 'valstep': 1},
-        'y': {'valmin': 100, 'valmax': 800, 'valstep': 1},
+        'x': {'valmin': 600, 'valmax': 2200, 'valstep': 1},
+        'y': {'valmin': 200, 'valmax': 1000, 'valstep': 1},
         's': {'valmin': 0.1, 'valmax': 0.2, 'valstep': 0.001},
         'r': {'valmin': 0, 'valmax': 359, 'valstep': 1}
     }
@@ -334,11 +338,17 @@ def main():
     if conf['mask'] is not None:
         profile['mask_path'] = data_dir / conf['mask']
     profile['show_trace'] = conf['show_trace']
-    profile['tag_colors'] = get_tag_colors(
-        profile['tags'],
-        conf['render']['color_palettes'],
-        get_experiment_name(profile_path)
-    )
+    if conf['palette_name'] is not None:
+        profile['tag_colors'] = dict(zip(
+            profile['tags'],
+            conf['render']['named_palettes'][conf['palette_name']]
+        ))
+    else:
+        profile['tag_colors'] = get_random_tag_colors(
+            profile['tags'],
+            conf['render']['color_palettes'],
+            get_experiment_name(profile_path)
+        )
     profile['width'] = conf['render']['width_px']
     profile['height'] = conf['render']['height_px']
     # Load the data (floorplan, anchors, recording).

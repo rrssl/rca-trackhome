@@ -46,6 +46,7 @@ tracking:
 render:
   color_palettes:
     - ['tab:pink', 'tab:olive', 'tab:cyan']
+  named_palettes:
   fps: 30
   width_px: 1920
   height_px: 1080
