@@ -104,7 +104,11 @@ def get_recording(
     record['floor'] = ""
     for floor, floor_max in sorted(
             floor_maxima.items(), key=lambda it: it[1], reverse=True):
-        record.loc[record['z'] < floor_max+1000, 'floor'] = floor
+        # Exclude points below the floor's 0 or above the highest anchor.
+        record.loc[
+            (record['z'] > 0) & (record['z'] < floor_max+200),
+            'floor'
+        ] = floor
     record = record.drop(record[record['floor'] == ""].index)
     # Change coordinates depending on the floor.
     record['y'] = anchors['y'].max() - record['y']  # swap y axis
