@@ -71,15 +71,17 @@ def get_recording(
     record = record.drop(  # remove points at (0, 0)
         record[(record['x'] == 0) & (record['y'] == 0)].index
     )
+    record = record.drop(  # remove points below ground level
+        record[record['z'] <= 0].index
+    )
     tags_record = []
     for tag, tag_record in record.groupby('i'):  # tag-specific cleaning
-        # Remove consecutive duplicates.
-        tag_record = tag_record.sort_index()
-        tag_record = tag_record.drop(tag_record[
-            (tag_record['x'].shift(1) == tag_record['x'])
-            & (tag_record['y'].shift(1) == tag_record['y'])
-        ].index)
+        # Remove duplicates. After analysing the points it seems fair to
+        # assume that almost all duplicates are the result of the tag losing
+        # an anchor or being picked up by both devices.
+        tag_record = tag_record.drop_duplicates(subset=['x', 'y', 'z'])
         # First denoise by averaging over time windows.
+        tag_record = tag_record.sort_index()
         if denoise_period is not None:
             tag_record = tag_record[['x', 'y', 'z']].resample(
                 f'{denoise_period}s'
@@ -97,19 +99,23 @@ def get_recording(
     ).set_index('i', append=True).sort_index()
     # pandasgui.show(record)
     # Assign locations to a floor.
-    floor_maxima = {
-        floor: max(profile['anchors'][fa][2] for fa in floor_anchors)
-        for floor, floor_anchors in profile['floors'].items()
-    }
-    record['floor'] = ""
-    for floor, floor_max in sorted(
-            floor_maxima.items(), key=lambda it: it[1], reverse=True):
-        # Exclude points below the floor's 0 or above the highest anchor.
-        record.loc[
-            (record['z'] > 0) & (record['z'] < floor_max+200),
-            'floor'
-        ] = floor
-    record = record.drop(record[record['floor'] == ""].index)
+    if len(profile['floors']) > 1:
+        floor_maxima = {
+            floor: max(profile['anchors'][fa][2] for fa in floor_anchors)
+            for floor, floor_anchors in profile['floors'].items()
+        }
+        record['floor'] = ""
+        for floor, floor_max in sorted(
+                floor_maxima.items(), key=lambda it: it[1], reverse=True):
+            # The floor name corresponds to the device on that floor.
+            # Exclude points above the highest anchor.
+            record.loc[
+                (record['msg_sender'] == floor) & (record['z'] < floor_max+200),
+                'floor'
+            ] = floor
+        record = record.drop(record[record['floor'] == ""].index)
+    else:
+        record['floor'] = next(iter(profile['floors']))
     # Change coordinates depending on the floor.
     record['y'] = anchors['y'].max() - record['y']  # swap y axis
     record[['tx', 'ty', 's', 'r']] = pd.DataFrame(
